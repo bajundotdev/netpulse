@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { DC_PRESET_PORTS, applyPortChanges, diffChecks, mergePorts, parsePort, portsOf } from "./ports.js";
+import {
+  DC_PRESET_PORTS, applyPortChanges, diffChecks, mergePorts, parsePort, portsOf, withPendingPort,
+} from "./ports.js";
 
 describe("mergePorts", () => {
   it("merges, sorts and de-duplicates", () => {
@@ -86,5 +88,18 @@ describe("applyPortChanges", () => {
     const api = makeApi(["del8"]);
     const err = await applyPortChanges(1, [tcp(7, 22), tcp(8, 23)], [], api).catch((e) => e);
     expect(err.baseline.map((c) => c.id)).toEqual([8]);
+  });
+});
+
+describe("withPendingPort", () => {
+  it("adds a typed but not added port on save", () => {
+    expect(withPendingPort([389], " 88 ")).toEqual({ ports: [88, 389], error: null });
+  });
+  it("leaves ports alone for blank text", () => {
+    const ports = [389];
+    expect(withPendingPort(ports, "  ")).toEqual({ ports, error: null });
+  });
+  it("blocks save with the port error for invalid text", () => {
+    expect(withPendingPort([389], "70000")).toEqual({ ports: [389], error: "Enter a whole number from 1 to 65535" });
   });
 });

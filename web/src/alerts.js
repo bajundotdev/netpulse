@@ -1,10 +1,14 @@
 const BASE_TITLE = "NetPulse";
 const SOUND_KEY = "netpulse.sound";
 
-export function shouldAlert(event) {
+// `wasDown`: the device went DOWN earlier in this session, so reaching UP is a recovery even
+// through DEGRADED (a rebooting DC answers ping before its services are back).
+export function shouldAlert(event, wasDown = false) {
   return (
     event.severity === "critical" ||
-    (event.kind === "status_change" && event.previous_status === "DOWN" && event.status === "UP")
+    (event.kind === "status_change" &&
+      event.status === "UP" &&
+      (event.previous_status === "DOWN" || wasDown))
   );
 }
 
@@ -43,11 +47,22 @@ export function notifyBrowser({ title, body }) {
 
 let audioCtx = null;
 
-export function beep() {
+// Creates/resumes the AudioContext. Call it from a click handler: browsers only allow audio to
+// start after a user gesture, so priming here lets the first alert beep actually play.
+export function primeAudio() {
   try {
     audioCtx ??= new (window.AudioContext || window.webkitAudioContext)();
-    const ctx = audioCtx;
-    if (ctx.state === "suspended") ctx.resume().catch(() => {});
+    if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
+    return audioCtx;
+  } catch {
+    return null;
+  }
+}
+
+export function beep() {
+  try {
+    const ctx = primeAudio();
+    if (!ctx) return;
     const start = ctx.currentTime;
     for (const offset of [0, 0.25]) {
       const osc = ctx.createOscillator();
@@ -79,6 +94,7 @@ export function createAlerter({
   let buffer = [];
   let timer = null;
   let unseen = 0;
+  const wentDown = new Set(); // device ids that went DOWN and have not reached UP since
 
   const flush = () => {
     timer = null;
@@ -91,7 +107,12 @@ export function createAlerter({
 
   return {
     push(event) {
-      if (!shouldAlert(event)) return;
+      let wasDown = false;
+      if (event.kind === "status_change" && event.device_id != null) {
+        if (event.status === "DOWN") wentDown.add(event.device_id);
+        else if (event.status === "UP") wasDown = wentDown.delete(event.device_id);
+      }
+      if (!shouldAlert(event, wasDown)) return;
       buffer.push(event);
       if (timer === null) timer = setTimeout(flush, windowMs);
       if (isHidden()) {

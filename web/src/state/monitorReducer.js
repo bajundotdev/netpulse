@@ -1,7 +1,10 @@
 const MAX_EVENTS = 500;
 const MAX_LATENCY = 60;
 
-export const initialState = { devices: {}, order: [], events: [], connected: false, loadError: null };
+// stale: the stream has been down long enough that the shown statuses cannot be trusted.
+export const initialState = {
+  devices: {}, order: [], events: [], connected: false, stale: false, loadError: null,
+};
 
 function patchDevice(state, id, patch) {
   const device = state.devices[id];
@@ -49,7 +52,12 @@ export function monitorReducer(state, action) {
       const device = state.devices[p.device_id];
       if (!device) return state;
       const latency = [...device.latency, p.latency_ms ?? null].slice(-MAX_LATENCY);
-      return patchDevice(state, p.device_id, { results: p.results, latency });
+      const patch = { results: p.results, latency };
+      // The backend sends the current status with every result, so a missed STATUS heals here.
+      if (p.status !== undefined) {
+        Object.assign(patch, { status: p.status, since: p.since, consecutive_failures: p.consecutive_failures });
+      }
+      return patchDevice(state, p.device_id, patch);
     }
     case "EVENT": {
       if (state.events.some((e) => e.id === action.event.id)) return state;
@@ -58,7 +66,9 @@ export function monitorReducer(state, action) {
     case "LOAD_FAILED":
       return { ...state, loadError: action.message };
     case "CONNECTED":
-      return { ...state, connected: true };
+      return { ...state, connected: true, stale: false };
+    case "STALE":
+      return state.connected ? state : { ...state, stale: true };
     case "DISCONNECTED":
       return { ...state, connected: false };
     case "DEVICE_REMOVED": {

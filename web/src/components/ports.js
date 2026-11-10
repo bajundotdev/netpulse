@@ -7,6 +7,17 @@ export function parsePort(text) {
   return n >= 1 && n <= 65535 ? n : null;
 }
 
+export const PORT_ERROR = "Enter a whole number from 1 to 65535";
+
+// Folds the text still in the "Add TCP port" box into the port list: blank is ignored, a valid
+// port is added, anything else is an error that must block saving.
+export function withPendingPort(ports, text) {
+  if (String(text).trim() === "") return { ports, error: null };
+  const port = parsePort(text);
+  if (port === null) return { ports, error: PORT_ERROR };
+  return { ports: mergePorts(ports, [port]), error: null };
+}
+
 export function mergePorts(existing, added) {
   return [...new Set([...existing, ...added])].sort((a, b) => a - b);
 }

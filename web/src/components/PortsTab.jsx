@@ -1,21 +1,14 @@
-import { useState } from "react";
 import { Badge, Button, CloseButton, Form, InputGroup } from "react-bootstrap";
-import { DC_PRESET_PORTS, mergePorts, parsePort } from "./ports.js";
+import { DC_PRESET_PORTS, mergePorts, withPendingPort } from "./ports.js";
 
-export default function PortsTab({ ports, onChange }) {
-  const [text, setText] = useState("");
-  const [error, setError] = useState(null);
-
+// `text`/`error` live in DeviceForm so Save can pick up a port that was typed but not added.
+export default function PortsTab({ ports, onChange, text, onTextChange, error, onErrorChange }) {
   const add = () => {
-    if (text.trim() === "") return;
-    const port = parsePort(text);
-    if (port === null) {
-      setError("Enter a whole number from 1 to 65535");
-      return;
-    }
-    setError(null);
-    setText("");
-    onChange(mergePorts(ports, [port]));
+    const next = withPendingPort(ports, text);
+    onErrorChange(next.error);
+    if (next.error || next.ports === ports) return;
+    onTextChange("");
+    onChange(next.ports);
   };
 
   return (
@@ -27,7 +20,7 @@ export default function PortsTab({ ports, onChange }) {
             inputMode="numeric"
             value={text}
             isInvalid={!!error}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e) => onTextChange(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();

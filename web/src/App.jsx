@@ -33,9 +33,14 @@ export default function App() {
             Could not load data from the NetPulse server: {state.loadError}
           </Alert>
         )}
+        {state.stale && (
+          <Alert variant="warning">
+            Lost connection to the NetPulse server — statuses below are stale
+          </Alert>
+        )}
         <SummaryStrip devices={devices} />
         <Row className="g-3">
-          <Col lg={8}>
+          <Col lg={8} className={state.stale ? "opacity-50" : undefined}>
             <DeviceGrid devices={devices} onOpen={setDetailId} />
           </Col>
           <Col lg={4}>

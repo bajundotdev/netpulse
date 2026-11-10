@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Badge, Button, Container, Navbar } from "react-bootstrap";
-import { readSoundSetting, writeSoundSetting } from "../alerts.js";
+import { primeAudio, readSoundSetting, writeSoundSetting } from "../alerts.js";
 
 const notificationPermission = () =>
   typeof Notification === "undefined" ? "unsupported" : Notification.permission;
@@ -11,11 +11,13 @@ export default function TopBar({ connected, onAdd }) {
 
   const toggleSound = () => {
     const next = !soundOn;
+    if (next) primeAudio();
     setSoundOn(next);
     writeSoundSetting(next);
   };
 
   const enableNotifications = async () => {
+    primeAudio();
     try {
       setPermission(await Notification.requestPermission());
     } catch {

@@ -4,7 +4,7 @@ import { ApiError, addCheck, createDevice, deleteCheck, updateCheck, updateDevic
 import { KIND_LABELS } from "./format.js";
 import PortsTab from "./PortsTab.jsx";
 import SnmpTab from "./SnmpTab.jsx";
-import { applyPortChanges, portsOf } from "./ports.js";
+import { applyPortChanges, portsOf, withPendingPort } from "./ports.js";
 import { applySnmpChanges, buildSnmpPayload, desiredSnmpChecks, snmpFormOf } from "./snmp.js";
 
 const DEFAULTS = {
@@ -70,6 +70,9 @@ export default function DeviceForm({ device, onSaved, onClose }) {
   const [form, setForm] = useState(() => toForm(device));
   const [errors, setErrors] = useState({ fields: {}, general: null });
   const [ports, setPorts] = useState(() => portsOf(device?.checks));
+  const [portText, setPortText] = useState("");
+  const [portError, setPortError] = useState(null);
+  const [tab, setTab] = useState("general");
   const [snmp, setSnmp] = useState(() => snmpFormOf(device));
   const [baseline, setBaseline] = useState(() => device?.checks ?? []);
   const [saving, setSaving] = useState(false);
@@ -77,6 +80,18 @@ export default function DeviceForm({ device, onSaved, onClose }) {
 
   const submit = async (e) => {
     e.preventDefault();
+    // A port still in the "Add TCP port" box is saved too; an invalid one blocks saving.
+    const pending = withPendingPort(ports, portText);
+    setPortError(pending.error);
+    if (pending.error) {
+      setTab("ports");
+      return;
+    }
+    const savePorts = pending.ports;
+    if (portText !== "") {
+      setPorts(savePorts);
+      setPortText("");
+    }
     setSaving(true);
     setErrors({ fields: {}, general: null });
     let working = baseline;
@@ -95,18 +110,18 @@ export default function DeviceForm({ device, onSaved, onClose }) {
           saved = await updateDevice(device.id, payload ? { ...body, snmp: payload } : body);
           working = await applySnmpChanges(
             device.id,
-            await applyPortChanges(device.id, working, ports, { addCheck, deleteCheck }),
+            await applyPortChanges(device.id, working, savePorts, { addCheck, deleteCheck }),
             desired,
             snmpApi,
           );
         }
         if (payload === null && device.snmp) {
-          working = await applyPortChanges(device.id, working, ports, { addCheck, deleteCheck });
+          working = await applyPortChanges(device.id, working, savePorts, { addCheck, deleteCheck });
         }
         setBaseline(working);
       } else {
         const checks = [
-          ...ports.map((port) => ({ type: "tcp", params: { port }, enabled: true })),
+          ...savePorts.map((port) => ({ type: "tcp", params: { port }, enabled: true })),
           ...desired.map((c) => ({ ...c, enabled: true })),
         ];
         saved = await createDevice({ ...body, ...(payload ? { snmp: payload } : {}), checks });
@@ -138,7 +153,7 @@ export default function DeviceForm({ device, onSaved, onClose }) {
         </Modal.Header>
         <Modal.Body>
           {errors.general && <Alert variant="danger">{errors.general}</Alert>}
-          <Tabs defaultActiveKey="general" className="mb-3">
+          <Tabs activeKey={tab} onSelect={(k) => setTab(k ?? "general")} className="mb-3">
             <Tab eventKey="general" title="General">
               {field("name", "Name", { required: true, autoFocus: true })}
               {field("host", "Host or IP", { required: true, className: "font-monospace", placeholder: "dc01.corp.local or 10.0.0.5" })}
@@ -177,7 +192,14 @@ export default function DeviceForm({ device, onSaved, onClose }) {
               {field("notes", "Notes", { as: "textarea", rows: 2 })}
             </Tab>
             <Tab eventKey="ports" title={`Ports${ports.length ? ` (${ports.length})` : ""}`}>
-              <PortsTab ports={ports} onChange={setPorts} />
+              <PortsTab
+                ports={ports}
+                onChange={setPorts}
+                text={portText}
+                onTextChange={setPortText}
+                error={portError}
+                onErrorChange={setPortError}
+              />
             </Tab>
             <Tab eventKey="snmp" title={`SNMP${snmp.version === "off" ? "" : ` (${snmp.version})`}`}>
               <SnmpTab value={snmp} onChange={setSnmp} current={device?.snmp} />

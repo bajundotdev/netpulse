@@ -15,7 +15,9 @@ describe("shouldAlert", () => {
     expect(shouldAlert({ severity: "critical", kind: "oid_threshold", message: "cpu high" })).toBe(true);
     expect(shouldAlert({ severity: "info", kind: "status_change", previous_status: "DOWN", status: "UP" })).toBe(true);
     expect(shouldAlert({ severity: "warning", kind: "status_change", previous_status: "UP", status: "DEGRADED" })).toBe(false);
+    // DEGRADED -> UP alerts only when the device was DOWN earlier in the session
     expect(shouldAlert({ severity: "info", kind: "status_change", previous_status: "DEGRADED", status: "UP" })).toBe(false);
+    expect(shouldAlert({ severity: "info", kind: "status_change", previous_status: "DEGRADED", status: "UP" }, true)).toBe(true);
     expect(shouldAlert({ severity: "info", kind: "device_added", message: "x" })).toBe(false);
   });
 });
@@ -101,6 +103,50 @@ describe("createAlerter", () => {
     const a = createAlerter({ notify: vi.fn(), beep: vi.fn(), setTitle, isHidden: () => false, soundOn: () => true });
     a.push(down(1));
     expect(setTitle).not.toHaveBeenCalled();
+  });
+
+  const change = (device_id, previous_status, status) => ({
+    device_id, kind: "status_change", previous_status, status,
+    severity: status === "DOWN" ? "critical" : status === "DEGRADED" ? "warning" : "info",
+    message: `dc${device_id} ${status}`,
+  });
+
+  test("DOWN, DEGRADED, UP gives one recovery alert on UP", () => {
+    vi.useFakeTimers();
+    const notify = vi.fn();
+    const a = createAlerter({ notify, beep: vi.fn(), setTitle: () => {}, isHidden: () => false, soundOn: () => false });
+    a.push(change(1, "UP", "DOWN"));
+    vi.advanceTimersByTime(2000);
+    a.push(change(1, "DOWN", "DEGRADED"));
+    vi.advanceTimersByTime(2000);
+    a.push(change(1, "DEGRADED", "UP"));
+    vi.advanceTimersByTime(2000);
+    expect(notify.mock.calls.map((c) => c[0].title)).toEqual(["dc1 DOWN", "dc1 UP"]);
+    // recovered: a later DEGRADED -> UP on the same device is quiet again
+    a.push(change(1, "UP", "DEGRADED"));
+    a.push(change(1, "DEGRADED", "UP"));
+    vi.advanceTimersByTime(2000);
+    expect(notify).toHaveBeenCalledTimes(2);
+  });
+
+  test("plain DEGRADED -> UP with no prior DOWN does not alert", () => {
+    vi.useFakeTimers();
+    const notify = vi.fn();
+    const a = createAlerter({ notify, beep: vi.fn(), setTitle: () => {}, isHidden: () => false, soundOn: () => false });
+    a.push(change(2, "UNKNOWN", "DEGRADED"));
+    a.push(change(2, "DEGRADED", "UP"));
+    a.push(change(1, "UP", "DOWN")); // another device going down does not count
+    vi.advanceTimersByTime(2000);
+    expect(notify.mock.calls.map((c) => c[0].title)).toEqual(["dc1 DOWN"]);
+  });
+
+  test("direct DOWN -> UP still alerts", () => {
+    vi.useFakeTimers();
+    const notify = vi.fn();
+    const a = createAlerter({ notify, beep: vi.fn(), setTitle: () => {}, isHidden: () => false, soundOn: () => false });
+    a.push(change(3, "DOWN", "UP"));
+    vi.advanceTimersByTime(2000);
+    expect(notify).toHaveBeenCalledTimes(1);
   });
 
   test("non-alertable events are ignored", () => {

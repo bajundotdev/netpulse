@@ -49,6 +49,25 @@ describe("monitorReducer", () => {
     expect(s.devices[1].results).toEqual([{ ok: true }]);
   });
 
+  test("RESULT also patches status, since and failures when the payload carries them", () => {
+    const s0 = snap([cfg(1)], [st(1, { status: "UNKNOWN", since: null })]);
+    const s = monitorReducer(s0, {
+      type: "RESULT",
+      payload: { device_id: 1, results: [], latency_ms: 2, status: "UP", since: "2026-03-03T00:00:00Z", consecutive_failures: 0 },
+    });
+    expect(s.devices[1]).toMatchObject({ status: "UP", since: "2026-03-03T00:00:00Z", consecutive_failures: 0, latency: [2] });
+    // older payloads without status leave it alone
+    const s2 = monitorReducer(s, { type: "RESULT", payload: { device_id: 1, results: [], latency_ms: 3 } });
+    expect(s2.devices[1].status).toBe("UP");
+  });
+
+  test("STALE marks data stale until CONNECTED", () => {
+    expect(initialState.stale).toBe(false);
+    const s = monitorReducer(monitorReducer(initialState, { type: "DISCONNECTED" }), { type: "STALE" });
+    expect(s.stale).toBe(true);
+    expect(monitorReducer(s, { type: "CONNECTED" }).stale).toBe(false);
+  });
+
   test("EVENT prepends and ignores an id already present", () => {
     const s0 = snap([cfg(1)], [st(1)], [ev(1)]);
     const s1 = monitorReducer(s0, { type: "EVENT", event: ev(2) });
