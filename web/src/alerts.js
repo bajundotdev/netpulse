@@ -100,6 +100,9 @@ export function createAlerter({
       }
     },
     focus() {
+      clearTimeout(timer);
+      timer = null;
+      buffer = [];
       unseen = 0;
       setTitle(BASE_TITLE);
     },

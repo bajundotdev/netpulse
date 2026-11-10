@@ -12,7 +12,7 @@ describe("shouldAlert", () => {
   test("DOWN, reboot, threshold breach, recovery; not DEGRADED or info", () => {
     expect(shouldAlert(down(1))).toBe(true);
     expect(shouldAlert({ severity: "critical", kind: "reboot", message: "rebooted" })).toBe(true);
-    expect(shouldAlert({ severity: "critical", kind: "threshold", message: "cpu high" })).toBe(true);
+    expect(shouldAlert({ severity: "critical", kind: "oid_threshold", message: "cpu high" })).toBe(true);
     expect(shouldAlert({ severity: "info", kind: "status_change", previous_status: "DOWN", status: "UP" })).toBe(true);
     expect(shouldAlert({ severity: "warning", kind: "status_change", previous_status: "UP", status: "DEGRADED" })).toBe(false);
     expect(shouldAlert({ severity: "info", kind: "status_change", previous_status: "DEGRADED", status: "UP" })).toBe(false);
@@ -75,6 +75,24 @@ describe("createAlerter", () => {
     expect(setTitle).toHaveBeenLastCalledWith("NetPulse");
     a.push(down(3));
     expect(setTitle).toHaveBeenLastCalledWith("(1) host3 is DOWN – NetPulse");
+  });
+
+  test("focus cancels a pending notification, and later alerts still fire", () => {
+    vi.useFakeTimers();
+    const notify = vi.fn(), beep = vi.fn(), setTitle = vi.fn();
+    const a = createAlerter({ notify, beep, setTitle, isHidden: () => true, soundOn: () => true });
+    a.push(down(1));
+    vi.advanceTimersByTime(1000);
+    a.focus();
+    vi.advanceTimersByTime(2000);
+    expect(notify).not.toHaveBeenCalled();
+    expect(beep).not.toHaveBeenCalled();
+    expect(setTitle).toHaveBeenLastCalledWith("NetPulse");
+    a.push(down(2));
+    vi.advanceTimersByTime(2000);
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify.mock.calls[0][0].title).toBe("host2 is DOWN");
+    expect(beep).toHaveBeenCalledTimes(1);
   });
 
   test("title is untouched while visible", () => {
