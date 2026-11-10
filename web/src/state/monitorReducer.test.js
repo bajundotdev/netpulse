@@ -88,4 +88,22 @@ describe("monitorReducer", () => {
     expect(s.connected).toBe(true);
     expect(monitorReducer(s, { type: "DISCONNECTED" }).connected).toBe(false);
   });
+
+  test("RESULT appends null latency and nulls count toward the cap", () => {
+    let s = snap([cfg(1)], [st(1)]);
+    s = monitorReducer(s, { type: "RESULT", payload: { device_id: 1, results: [], latency_ms: null } });
+    expect(s.devices[1].latency).toEqual([null]);
+    for (let i = 0; i < 60; i++) {
+      s = monitorReducer(s, { type: "RESULT", payload: { device_id: 1, results: [], latency_ms: null } });
+    }
+    expect(s.devices[1].latency).toHaveLength(60);
+  });
+
+  test("LOAD_FAILED sets loadError and SNAPSHOT clears it", () => {
+    const s1 = monitorReducer(initialState, { type: "LOAD_FAILED", message: "boom" });
+    expect(s1.loadError).toBe("boom");
+    expect(initialState.loadError).toBeNull();
+    const s2 = monitorReducer(s1, { type: "SNAPSHOT", devices: [], statuses: [], events: [] });
+    expect(s2.loadError).toBeNull();
+  });
 });

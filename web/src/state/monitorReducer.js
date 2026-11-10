@@ -1,7 +1,7 @@
 const MAX_EVENTS = 500;
 const MAX_LATENCY = 60;
 
-export const initialState = { devices: {}, order: [], events: [], connected: false };
+export const initialState = { devices: {}, order: [], events: [], connected: false, loadError: null };
 
 function patchDevice(state, id, patch) {
   const device = state.devices[id];
@@ -28,6 +28,7 @@ function snapshot(state, { devices, statuses, events }) {
     devices: byId,
     order: devices.map((d) => d.id),
     events: events.slice(0, MAX_EVENTS),
+    loadError: null,
   };
 }
 
@@ -47,14 +48,15 @@ export function monitorReducer(state, action) {
       const p = action.payload;
       const device = state.devices[p.device_id];
       if (!device) return state;
-      const latency =
-        p.latency_ms == null ? device.latency : [...device.latency, p.latency_ms].slice(-MAX_LATENCY);
+      const latency = [...device.latency, p.latency_ms ?? null].slice(-MAX_LATENCY);
       return patchDevice(state, p.device_id, { results: p.results, latency });
     }
     case "EVENT": {
       if (state.events.some((e) => e.id === action.event.id)) return state;
       return { ...state, events: [action.event, ...state.events].slice(0, MAX_EVENTS) };
     }
+    case "LOAD_FAILED":
+      return { ...state, loadError: action.message };
     case "CONNECTED":
       return { ...state, connected: true };
     case "DISCONNECTED":
