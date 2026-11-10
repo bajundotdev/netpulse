@@ -62,3 +62,10 @@ def test_paused_state_emits_info_once():
     s, ev = paused_state(DeviceState(DeviceStatus.UP, 0, T0), "DC01", 1, T1)
     assert s.status is DeviceStatus.PAUSED and ev.message == "DC01 PAUSED"
     assert paused_state(s, "DC01", 1, T2)[1] is None
+
+
+def test_degraded_message_falls_back_when_reason_missing():
+    up = DeviceState(DeviceStatus.UP, 0, T0)
+    other = CheckResult(type=CheckType.SNMP_OID, label="oid:cpu", ok=False)
+    s, ev = next_state(up, "DC01", 1, ok(), [other], 2, T1)
+    assert s.status is DeviceStatus.DEGRADED and ev.message == "DC01 DEGRADED: oid:cpu failed"

@@ -246,3 +246,22 @@ def test_validation_errors_do_not_echo_secrets(client):
     r = client.put(f"/api/devices/{d['id']}", json={"snmp": BAD_SNMP})
     assert r.status_code == 422
     assert "short" not in r.text and "TOPSECRET" not in r.text
+
+
+def test_device_changes_are_published_on_the_devices_topic(client):
+    c = client.app.state.container
+    q = c.broadcaster.register()
+    d = make(client)
+    chk = client.post(f"/api/devices/{d['id']}/checks", json={"type": "tcp", "params": {"port": 88}}).json()
+    client.put(f"/api/checks/{chk['id']}", json={"type": "tcp", "params": {"port": 89}})
+    client.delete(f"/api/checks/{chk['id']}")
+    client.put(f"/api/devices/{d['id']}", json={"notes": "x"})
+    client.delete(f"/api/devices/{d['id']}")
+    seen = []
+    while not q.empty():
+        topic, payload = q.get_nowait()
+        if topic == "devices":
+            seen.append((payload["device_id"], payload["change"]))
+    i = d["id"]
+    assert seen == [(i, "created"), (i, "updated"), (i, "updated"), (i, "updated"),
+                    (i, "updated"), (i, "deleted")]

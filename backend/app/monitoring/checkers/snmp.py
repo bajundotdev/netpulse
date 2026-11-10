@@ -50,8 +50,7 @@ class SnmpIfChecker:
     async def check(self, host: str, timeout_ms: int) -> CheckResult:
         label, started = "interfaces", time.perf_counter()
         try:
-            descrs = await self._client.walk(host, self._settings, IF_DESCR, timeout_ms)
-            statuses = await self._client.walk(host, self._settings, IF_OPER_STATUS, timeout_ms)
+            descrs, statuses = await self._fetch(host, timeout_ms)
         except (SnmpError, asyncio.TimeoutError, TimeoutError) as e:
             return _failure(CheckType.SNMP_IF, label, e, started)
         value: dict[int, dict[str, Any]] = {}
@@ -70,6 +69,21 @@ class SnmpIfChecker:
             CheckType.SNMP_IF, label, not down, latency_ms=_ms(started),
             reason=", ".join(down) or None, value=value,
         )
+
+    async def _fetch(self, host: str, timeout_ms: int) -> tuple[dict[str, Any], dict[str, Any]]:
+        if self._watched:
+            # Watched interfaces: one GET of exactly ifDescr.N and ifOperStatus.N.
+            oids = [f"{col}.{i}" for col in (IF_DESCR, IF_OPER_STATUS) for i in self._watched]
+            got = await self._client.get(host, self._settings, oids, timeout_ms)
+            descrs = {k: v for k, v in got.items() if k.startswith(IF_DESCR + ".")}
+            statuses = {k: v for k, v in got.items() if k.startswith(IF_OPER_STATUS + ".")}
+            return descrs, statuses
+        # All interfaces: walk both columns at once.
+        descrs, statuses = await asyncio.gather(
+            self._client.walk(host, self._settings, IF_DESCR, timeout_ms),
+            self._client.walk(host, self._settings, IF_OPER_STATUS, timeout_ms),
+        )
+        return descrs, statuses
 
 
 class SnmpOidChecker:
@@ -110,7 +124,11 @@ class SnmpOidChecker:
                 )
         else:
             number = current
-        ok = not breaches(self._op, self._threshold, number)
+        if breaches(self._op, self._threshold, number):
+            return CheckResult(
+                CheckType.SNMP_OID, self._label, False, latency_ms=latency,
+                reason=f"value {current} {self._op} {self._threshold}", value=current,
+            )
         return CheckResult(
-            CheckType.SNMP_OID, self._label, ok, latency_ms=latency, value=current
+            CheckType.SNMP_OID, self._label, True, latency_ms=latency, value=current
         )

@@ -36,3 +36,34 @@ def test_v2c_uses_community():
 
 def test_construction_does_not_create_engine():
     assert PysnmpClient()._engine is None
+
+
+async def test_walk_uses_one_bulk_request_stream(monkeypatch):
+    from app.monitoring import snmp_client
+
+    seen = {}
+
+    async def fake_bulk_walk(engine, auth, target, ctx, non_repeaters, max_repetitions, var_bind,
+                             **options):
+        seen.update(non_repeaters=non_repeaters, max_repetitions=max_repetitions, options=options)
+        base = "1.3.6.1.2.1.2.2.1.8"
+        yield None, 0, 0, [(f"{base}.1", snmp_client.Integer(1)),
+                           (f"{base}.2", snmp_client.Integer(2)),
+                           ("1.3.6.1.2.1.2.2.1.9.1", snmp_client.Integer(0))]  # past the column
+
+    def no_plain_walk(*a, **k):
+        raise AssertionError("walk_cmd must not be used")
+
+    async def fake_target(self, host, s, timeout_ms):
+        return object()
+
+    monkeypatch.setattr(snmp_client, "bulk_walk_cmd", fake_bulk_walk)
+    monkeypatch.setattr(snmp_client, "walk_cmd", no_plain_walk, raising=False)
+    monkeypatch.setattr(PysnmpClient, "_target", fake_target)
+    c = PysnmpClient()
+    monkeypatch.setattr(c, "_get_engine", lambda: object())
+    got = await c.walk("10.0.0.1", SnmpSettings("v2c", community="public"),
+                       "1.3.6.1.2.1.2.2.1.8", 1000)
+    assert got == {"1.3.6.1.2.1.2.2.1.8.1": 1, "1.3.6.1.2.1.2.2.1.8.2": 2}
+    assert seen["non_repeaters"] == 0 and seen["max_repetitions"] == 25
+    assert seen["options"].get("lexicographicMode") is False

@@ -16,6 +16,7 @@ from app.config import REPO_ROOT, Settings
 from app.infra.bus import EventBus
 from app.infra.crypto import SecretBox
 from app.infra.db import make_session_factory
+from app.infra.dbexec import DbRunner
 from app.infra.repositories import (
     CheckRepository,
     DeviceRepository,
@@ -37,6 +38,7 @@ WEB_DIST = REPO_ROOT / "web" / "dist"
 class Container:
     settings: Settings
     session_factory: sessionmaker
+    db: DbRunner
     bus: EventBus
     store: StatusStore
     monitor: Monitor
@@ -53,12 +55,13 @@ def _build_container(settings: Settings, factory: CheckerFactory | None) -> Cont
     device_repo = DeviceRepository(session_factory, box)
     check_repo = CheckRepository(session_factory)
     event_repo = EventRepository(session_factory)
+    db = DbRunner()
 
     bus = EventBus()
     store = StatusStore()
-    bus.subscribe("domain_event", EventLogWriter(event_repo, bus).handle)
+    bus.subscribe("domain_event", EventLogWriter(event_repo, bus, db).handle)
     broadcaster = SseBroadcaster()
-    for topic in ("status", "result", "event"):
+    for topic in ("status", "result", "event", "devices"):
         bus.subscribe(topic, partial(broadcaster.handle, topic))
 
     snmp_client = PysnmpClient()
@@ -66,13 +69,14 @@ def _build_container(settings: Settings, factory: CheckerFactory | None) -> Cont
     return Container(
         settings=settings,
         session_factory=session_factory,
+        db=db,
         bus=bus,
         store=store,
         monitor=monitor,
         snmp_client=snmp_client,
         broadcaster=broadcaster,
-        devices=DeviceService(device_repo, check_repo, monitor, store),
-        events=EventService(event_repo),
+        devices=DeviceService(device_repo, check_repo, monitor, store, bus, db),
+        events=EventService(event_repo, db),
     )
 
 
@@ -94,6 +98,7 @@ def create_app(
             yield
         finally:
             await c.monitor.stop()
+            c.db.shutdown()
             c.snmp_client.close()
             c.session_factory.kw["bind"].dispose()
 

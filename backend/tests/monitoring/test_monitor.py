@@ -425,3 +425,28 @@ async def test_uptime_drop_without_upsert_still_reboots_once():
     await mon.run_cycle(d)
     reboots = [e for e in bus.of("domain_event") if getattr(e, "kind", None) is EventKind.REBOOT]
     assert len(reboots) == 1
+
+
+async def test_result_payload_carries_current_status():
+    mon, _, bus = build(FakeChecker([fail()]))
+    d = device()
+    await mon.run_cycle(d)
+    first = bus.of("result")[-1]
+    assert first["status"] == "UNKNOWN" and first["consecutive_failures"] == 1
+    assert isinstance(first["since"], str)
+    await mon.run_cycle(d)
+    second = bus.of("result")[-1]
+    assert second["status"] == "DOWN" and second["consecutive_failures"] == 2
+    assert second["since"] == bus.of("status")[-1]["since"]
+
+
+async def test_slow_dns_is_liveness_failure_with_reason_dns():
+    async def slow(host):
+        await asyncio.sleep(30)
+
+    mon, _, _ = build(FakeChecker([ok()]), resolver=slow)
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+    results = await mon.run_cycle(device(timeout_ms=200))
+    assert loop.time() - started < 2.0  # timeout_ms/1000 + 1 s
+    assert results[0].ok is False and results[0].reason == "dns"

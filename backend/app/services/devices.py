@@ -5,6 +5,7 @@ from datetime import UTC
 from typing import Any
 
 from app.domain.models import DeviceConfig
+from app.infra.bus import EventBus
 from app.infra.db import CheckRow, DeviceRow
 from app.infra.repositories import CheckRepository, DeviceRepository
 from app.monitoring.monitor import Monitor
@@ -23,6 +24,7 @@ from app.schemas import (
     validate_liveness,
     validate_timing,
 )
+from app.services.events import RunDb
 
 # Columns that accept an explicit null in an update; null elsewhere means "unchanged".
 _NULLABLE = {"liveness_port", "notes"}
@@ -109,11 +111,19 @@ class DeviceService:
         checks: CheckRepository,
         monitor: Monitor,
         store: StatusStore,
+        bus: EventBus,
+        run: RunDb = asyncio.to_thread,
     ) -> None:
         self._devices = devices
         self._checks = checks
         self._monitor = monitor
         self._store = store
+        self._bus = bus
+        self._run = run
+
+    async def _changed(self, device_id: int, change: str) -> None:
+        """Tells open pages (other tabs, API users) to reload the device list."""
+        await self._bus.publish("devices", {"device_id": device_id, "change": change})
 
     # ---- helpers (blocking; run in a worker thread) ----
 
@@ -207,33 +217,36 @@ class DeviceService:
     # ---- use cases ----
 
     async def list(self) -> list[DeviceOut]:
-        return await asyncio.to_thread(lambda: [self._out(r) for r in self._devices.list()])
+        return await self._run(lambda: [self._out(r) for r in self._devices.list()])
 
     async def configs(self) -> list[DeviceConfig]:
-        return await asyncio.to_thread(
+        return await self._run(
             lambda: [self._devices.to_config(r) for r in self._devices.list()]
         )
 
     async def get(self, id: int) -> DeviceOut:
-        return await asyncio.to_thread(lambda: self._out(self._devices.get(id)))
+        return await self._run(lambda: self._out(self._devices.get(id)))
 
     async def create(self, data: DeviceIn) -> DeviceOut:
-        out, config = await asyncio.to_thread(self._create_sync, data)
+        out, config = await self._run(self._create_sync, data)
         await self._monitor.upsert(config)
+        await self._changed(out.id, "created")
         return out
 
     async def update(self, id: int, data: DeviceUpdate) -> DeviceOut:
-        out, config = await asyncio.to_thread(self._update_sync, id, data)
+        out, config = await self._run(self._update_sync, id, data)
         await self._monitor.upsert(config)
+        await self._changed(id, "updated")
         return out
 
     async def delete(self, id: int) -> None:
-        await asyncio.to_thread(self._devices.delete, id)
+        await self._run(self._devices.delete, id)
         await self._monitor.remove(id)
         self._store.remove(id)
+        await self._changed(id, "deleted")
 
     async def test(self, id: int) -> list[ResultOut]:
-        config = await asyncio.to_thread(self._config, id)
+        config = await self._run(self._config, id)
         results = await self._monitor.test(config)
         return [ResultOut(**{**r.__dict__, "type": r.type.value}) for r in results]
 
@@ -242,7 +255,7 @@ class DeviceService:
             self._devices.get(device_id)
             return [_check_out(c) for c in self._checks.list_for_device(device_id)]
 
-        return await asyncio.to_thread(run)
+        return await self._run(run)
 
     async def add_check(self, device_id: int, data: CheckIn) -> CheckOut:
         def run() -> tuple[CheckOut, DeviceConfig]:
@@ -251,8 +264,9 @@ class DeviceService:
             row = self._checks.create(device_id, data.model_dump())
             return _check_out(row), self._config(device_id)
 
-        out, config = await asyncio.to_thread(run)
+        out, config = await self._run(run)
         await self._monitor.upsert(config)
+        await self._changed(config.id, "updated")
         return out
 
     async def update_check(self, id: int, data: CheckIn) -> CheckOut:
@@ -263,8 +277,9 @@ class DeviceService:
             row = self._checks.update(id, data.model_dump())
             return _check_out(row), self._config(device_id)
 
-        out, config = await asyncio.to_thread(run)
+        out, config = await self._run(run)
         await self._monitor.upsert(config)
+        await self._changed(config.id, "updated")
         return out
 
     async def delete_check(self, id: int) -> None:
@@ -273,8 +288,9 @@ class DeviceService:
             self._checks.delete(id)
             return self._config(device_id)
 
-        config = await asyncio.to_thread(run)
+        config = await self._run(run)
         await self._monitor.upsert(config)
+        await self._changed(config.id, "updated")
 
     async def status(self) -> list[DeviceStatusOut]:
-        return await asyncio.to_thread(lambda: [self._status_row(r) for r in self._devices.list()])
+        return await self._run(lambda: [self._status_row(r) for r in self._devices.list()])

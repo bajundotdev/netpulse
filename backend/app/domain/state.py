@@ -60,7 +60,7 @@ def next_state(
     if liveness.ok:
         failing = [r for r in others if not r.ok]
         if failing:
-            detail = ", ".join(f"{r.label} {r.reason}" for r in failing)
+            detail = ", ".join(f"{r.label} {r.reason or 'failed'}" for r in failing)
             return _transition(
                 prev, DeviceStatus.DEGRADED, 0, f"{name} DEGRADED: {detail}", device_id, now
             )

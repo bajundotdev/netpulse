@@ -153,8 +153,12 @@ class Monitor:
     async def _run_checks(self, device: DeviceConfig) -> list[CheckResult]:
         liveness_cfg = device.liveness_check()
         try:
-            host = await self._resolver(device.host)
-        except ResolveError:
+            # Bounded: a hung DNS server must not stall the cycle (getaddrinfo cannot be cancelled,
+            # but the cycle stops waiting for it).
+            host = await asyncio.wait_for(
+                self._resolver(device.host), device.timeout_ms / 1000 + 1
+            )
+        except (ResolveError, TimeoutError):
             return [
                 CheckResult(
                     liveness_cfg.type, _liveness_label(liveness_cfg), False, reason="dns"
@@ -199,6 +203,10 @@ class Monitor:
                 "device_id": device.id,
                 "results": [asdict(r) for r in results],
                 "latency_ms": latency,
+                # current state too, so a client that missed a status message catches up
+                "status": state.status.value,
+                "since": state.since.isoformat(),
+                "consecutive_failures": state.consecutive_failures,
             },
         )
         return results

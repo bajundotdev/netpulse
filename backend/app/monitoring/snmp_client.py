@@ -8,6 +8,7 @@ from pysnmp.hlapi.v3arch.asyncio import (
     SnmpEngine,
     UdpTransportTarget,
     UsmUserData,
+    bulk_walk_cmd,
     get_cmd,
     usmAesCfb128Protocol,
     usmAesCfb256Protocol,
@@ -17,12 +18,13 @@ from pysnmp.hlapi.v3arch.asyncio import (
     usmHMACSHAAuthProtocol,
     usmNoAuthProtocol,
     usmNoPrivProtocol,
-    walk_cmd,
 )
 from pyasn1.type.univ import Integer
 from pysnmp.proto.rfc1905 import EndOfMibView, NoSuchInstance, NoSuchObject
 
 from app.domain.models import SnmpSettings
+
+BULK_REPETITIONS = 25
 
 _AUTH = {
     "none": usmNoAuthProtocol,
@@ -119,11 +121,14 @@ class PysnmpClient:
     ) -> dict[str, Any]:
         base = _oid(base_oid)
         out: dict[str, Any] = {}
-        async for err_ind, err_status, _, var_binds in walk_cmd(
+        # GETBULK (v2c/v3): up to BULK_REPETITIONS rows per round trip instead of one GETNEXT each.
+        async for err_ind, err_status, _, var_binds in bulk_walk_cmd(
             self._get_engine(),
             self._auth_data(settings),
             await self._target(host, settings, timeout_ms),
             ContextData(),
+            0,
+            BULK_REPETITIONS,
             ObjectType(ObjectIdentity(base)),
             lexicographicMode=False,
         ):
