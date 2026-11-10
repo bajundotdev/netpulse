@@ -13,7 +13,9 @@ def tmp_data_dir(tmp_path):
 
 @pytest.fixture
 def session_factory(tmp_data_dir):
-    return make_session_factory(tmp_data_dir / "netpulse.db")
+    factory = make_session_factory(tmp_data_dir / "netpulse.db")
+    yield factory
+    factory.kw["bind"].dispose()
 
 
 @pytest.fixture

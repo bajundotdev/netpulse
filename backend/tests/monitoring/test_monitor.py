@@ -308,3 +308,26 @@ async def test_reenabled_device_resets_paused_to_unknown():
     await asyncio.sleep(0.05)
     await mon.stop()
     assert store.state(1).status is DeviceStatus.UNKNOWN
+
+
+async def test_reenable_publishes_unknown_status_without_domain_event():
+    mon, store, bus = build(FakeChecker([fail()]))
+    await mon.upsert(device(enabled=False))
+    before_events = len(bus.of("domain_event"))
+    bus.published.clear()
+    await mon.upsert(device(fail_threshold=2))
+    statuses = bus.of("status")
+    assert statuses[0]["status"] == "UNKNOWN"
+    assert statuses[0]["previous_status"] == "PAUSED"
+    assert statuses[0]["device_id"] == 1
+    assert bus.of("domain_event") == [] and before_events == 1
+    await mon.stop()
+
+
+async def test_new_enabled_device_publishes_unknown_status_with_null_previous():
+    mon, store, bus = build(FakeChecker([ok()]))
+    await mon.upsert(device())
+    first = bus.of("status")[0]
+    assert first["status"] == "UNKNOWN" and first["previous_status"] is None
+    assert bus.of("domain_event") == []
+    await mon.stop()

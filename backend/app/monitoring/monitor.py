@@ -70,12 +70,20 @@ class Monitor:
         generation = self._generation.get(device.id, 0) + 1
         self._generation[device.id] = generation
         prev = self._store.state(device.id)
+        reset: DeviceState | None = None
         if device.enabled:
             if prev is None or prev.status is DeviceStatus.PAUSED:
-                self._store.set_state(device.id, DeviceState.initial(self._clock()))
+                reset = DeviceState.initial(self._clock())
+                self._store.set_state(device.id, reset)
             self._tasks[device.id] = asyncio.create_task(self._loop(device, generation))
         await self._reap(old)
-        if device.enabled or self._generation.get(device.id) != generation:
+        if self._generation.get(device.id) != generation:
+            return
+        if device.enabled:
+            if reset is not None:
+                await self._publish_status(
+                    device.id, reset, prev.status.value if prev is not None else None
+                )
             return
         prev = prev or DeviceState.initial(self._clock())
         state, event = paused_state(prev, device.name, device.id, self._clock())
@@ -185,17 +193,22 @@ class Monitor:
         )
         return results
 
-    async def _publish_change(
-        self, device_id: int, prev: DeviceState, state: DeviceState, event: DomainEvent
+    async def _publish_status(
+        self, device_id: int, state: DeviceState, previous_status: str | None
     ) -> None:
         await self._bus.publish(
             "status",
             {
                 "device_id": device_id,
                 "status": state.status.value,
-                "previous_status": prev.status.value,
+                "previous_status": previous_status,
                 "since": state.since.isoformat(),
                 "consecutive_failures": state.consecutive_failures,
             },
         )
+
+    async def _publish_change(
+        self, device_id: int, prev: DeviceState, state: DeviceState, event: DomainEvent
+    ) -> None:
+        await self._publish_status(device_id, state, prev.status.value)
         await self._bus.publish("domain_event", event)
