@@ -70,6 +70,7 @@ class Monitor:
         old = self._tasks.pop(device.id, None)
         if old is not None:
             old.cancel()
+        self._tracker.forget(device.id)  # any config change re-baselines SNMP detectors
         generation = self._generation.get(device.id, 0) + 1
         self._generation[device.id] = generation
         prev = self._store.state(device.id)

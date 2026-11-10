@@ -382,3 +382,46 @@ def test_pysnmp_client_close_is_safe_twice():
     c._get_engine()
     c.close()
     c.close()
+
+
+def _snmp(check_type, label, value, ok_=True):
+    return CheckResult(check_type, label, ok_, value=value)
+
+
+async def test_upsert_rebaselines_uptime_so_edit_does_not_fake_a_reboot():
+    uptime = FakeChecker([_snmp(CheckType.SNMP_UPTIME, "snmp uptime", 500000),
+                          _snmp(CheckType.SNMP_UPTIME, "snmp uptime", 1200)])
+    mon, _, bus = build(FakeChecker([ok()]))
+    mon._factory.register(CheckType.SNMP_UPTIME, lambda c, d: uptime)
+    d = device(checks=(CheckConfig(7, CheckType.SNMP_UPTIME, {}),))
+    await mon.run_cycle(d)
+    edited = device(enabled=False, checks=(CheckConfig(7, CheckType.SNMP_UPTIME, {"x": 1}),))
+    await mon.upsert(edited)
+    await mon.run_cycle(edited, generation=mon._generation[1])
+    assert not [e for e in bus.of("domain_event") if getattr(e, "kind", None) is EventKind.REBOOT]
+
+
+async def test_upsert_rebaselines_oid_when_same_id_switches_mode():
+    oid = FakeChecker([_snmp(CheckType.SNMP_OID, "oid:x", 5), _snmp(CheckType.SNMP_OID, "oid:x", 4)])
+    mon, _, bus = build(FakeChecker([ok()]))
+    mon._factory.register(CheckType.SNMP_OID, lambda c, d: oid)
+    change = {"oid": "1.3.6.1", "label": "x", "mode": "change"}
+    thr = {"oid": "1.3.6.1", "label": "x", "mode": "threshold", "op": ">", "value": 90}
+    await mon.run_cycle(device(checks=(CheckConfig(8, CheckType.SNMP_OID, change),)))
+    edited = device(enabled=False, checks=(CheckConfig(8, CheckType.SNMP_OID, thr),))
+    await mon.upsert(edited)
+    await mon.run_cycle(edited, generation=mon._generation[1])
+    kinds = {getattr(e, "kind", None) for e in bus.of("domain_event")}
+    assert EventKind.OID_CHANGE not in kinds and EventKind.OID_THRESHOLD not in kinds
+
+
+async def test_uptime_drop_without_upsert_still_reboots_once():
+    uptime = FakeChecker([_snmp(CheckType.SNMP_UPTIME, "snmp uptime", 500000),
+                          _snmp(CheckType.SNMP_UPTIME, "snmp uptime", 1200)])
+    mon, _, bus = build(FakeChecker([ok()]))
+    mon._factory.register(CheckType.SNMP_UPTIME, lambda c, d: uptime)
+    d = device(checks=(CheckConfig(7, CheckType.SNMP_UPTIME, {}),))
+    await mon.run_cycle(d)
+    await mon.run_cycle(d)
+    reboots = [e for e in bus.of("domain_event") if getattr(e, "kind", None) is EventKind.REBOOT]
+    assert len(reboots) == 1
