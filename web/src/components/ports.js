@@ -37,3 +37,24 @@ export function resultFor(check, results) {
     null
   );
 }
+
+// Applies the port diff one call at a time. On failure the thrown error carries `baseline`:
+// the checks as they now stand on the server, so a retry diffs against the real state.
+export async function applyPortChanges(deviceId, baseline, ports, api) {
+  let working = [...baseline];
+  const { add, remove } = diffChecks(working, ports);
+  try {
+    for (const port of add) {
+      const created = await api.addCheck(deviceId, { type: "tcp", params: { port }, enabled: true });
+      working = [...working, created];
+    }
+    for (const check of remove) {
+      await api.deleteCheck(check.id);
+      working = working.filter((c) => c.id !== check.id);
+    }
+  } catch (err) {
+    err.baseline = working;
+    throw err;
+  }
+  return working;
+}

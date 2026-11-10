@@ -3,7 +3,7 @@ import { Alert, Button, Col, Form, Modal, Row, Tab, Tabs } from "react-bootstrap
 import { ApiError, addCheck, createDevice, deleteCheck, updateDevice } from "../api.js";
 import { KIND_LABELS } from "./format.js";
 import PortsTab from "./PortsTab.jsx";
-import { diffChecks, portsOf } from "./ports.js";
+import { applyPortChanges, portsOf } from "./ports.js";
 
 const DEFAULTS = {
   name: "",
@@ -68,6 +68,7 @@ export default function DeviceForm({ device, onSaved, onClose }) {
   const [form, setForm] = useState(() => toForm(device));
   const [errors, setErrors] = useState({ fields: {}, general: null });
   const [ports, setPorts] = useState(() => portsOf(device?.checks));
+  const [baseline, setBaseline] = useState(() => device?.checks ?? []);
   const [saving, setSaving] = useState(false);
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
@@ -80,15 +81,14 @@ export default function DeviceForm({ device, onSaved, onClose }) {
       let saved;
       if (device) {
         saved = await updateDevice(device.id, body);
-        const { add, remove } = diffChecks(device.checks ?? [], ports);
-        for (const port of add) await addCheck(device.id, { type: "tcp", params: { port }, enabled: true });
-        for (const check of remove) await deleteCheck(check.id);
+        setBaseline(await applyPortChanges(device.id, baseline, ports, { addCheck, deleteCheck }));
       } else {
         const checks = ports.map((port) => ({ type: "tcp", params: { port }, enabled: true }));
         saved = await createDevice({ ...body, checks });
       }
       await onSaved(saved);
     } catch (err) {
+      if (err.baseline) setBaseline(err.baseline);
       setErrors(parseError(err));
     } finally {
       setSaving(false);
