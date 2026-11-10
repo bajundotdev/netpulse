@@ -129,10 +129,15 @@ interfaces the domain/services define.
 |---|---|
 | `devices` | `id`, `name` (unique), `host`, `kind` (dc/server/switch/printer/other), `enabled`, `interval_s` (5), `fail_threshold` (2), `timeout_ms` (1000), `liveness` (`ping`/`tcp`), `liveness_port`, `snmp_version` (null/`v2c`/`v3`), `snmp_port` (161), `snmp_community_enc`, `snmp_user`, `snmp_auth_proto` (none/MD5/SHA/SHA256), `snmp_auth_key_enc`, `snmp_priv_proto` (none/DES/AES128/AES256), `snmp_priv_key_enc`, `notes`, `created_at`, `updated_at` |
 | `checks` | `id`, `device_id` (FK, cascade delete), `type` (`tcp`/`snmp_uptime`/`snmp_if`/`snmp_oid`), `params` (JSON), `enabled`, `created_at` |
-| `events` | `id`, `ts`, `device_id` (FK, set null), `check_id`, `severity` (info/warning/critical), `kind` (status_change/reboot/if_change/oid_change/oid_threshold/check_error), `message`, `acknowledged` |
+| `events` | `id`, `ts`, `device_id` (FK, set null), `check_id`, `severity` (info/warning/critical), `kind` (status_change/reboot/if_change/oid_change/oid_threshold/check_error), `message`, `status`, `previous_status` (both only for `status_change`), `acknowledged` |
 
 `params` by type: `tcp` → `{port}`; `snmp_uptime` → `{}`; `snmp_if` → `{if_indexes?: [int]}`;
 `snmp_oid` → `{oid, label, mode: "change"|"threshold", op?, value?}`.
+
+Check health for state purposes: `snmp_uptime` and `snmp_oid` (change mode) are OK when the
+device answers; `snmp_if` is OK when it answers and every listed `if_indexes` entry is up (without a
+list, interface changes only raise events, since unused switch ports are normally down);
+`snmp_oid` in threshold mode is OK while the threshold is not breached.
 
 Secrets (`*_enc`) are encrypted with Fernet using a key generated on first run at
 `data/secret.key`. The API accepts them but never returns them; responses carry
