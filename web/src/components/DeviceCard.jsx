@@ -1,5 +1,5 @@
 import { Badge, Card } from "react-bootstrap";
-import { KIND_LABELS, formatDuration, parseTs, statusVariant } from "./format.js";
+import { KIND_LABELS, formatDuration, formatUptime, parseTs, statusVariant } from "./format.js";
 import Sparkline from "./Sparkline.jsx";
 import { resultFor } from "./ports.js";
 
@@ -8,6 +8,7 @@ export default function DeviceCard({ device, now, onOpen }) {
   const last = device.latency.length ? device.latency[device.latency.length - 1] : null;
   const since = parseTs(device.since);
   const tcpChecks = (device.checks ?? []).filter((c) => c.type === "tcp");
+  const uptime = (device.results ?? []).find((r) => r.type === "snmp_uptime" && r.ok && r.value != null);
   const showDuration = since && (device.status === "UP" || device.status === "DEGRADED" || device.status === "DOWN");
 
   return (
@@ -61,6 +62,7 @@ export default function DeviceCard({ device, now, onOpen }) {
             })}
           </div>
         )}
+        {uptime && <div className="small text-body-secondary mt-1">Uptime {formatUptime(uptime.value)}</div>}
         <div className="d-flex justify-content-between small text-body-secondary mt-1">
           <span>{KIND_LABELS[device.kind] ?? device.kind}</span>
           {showDuration && (

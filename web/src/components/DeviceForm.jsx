@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { Alert, Button, Col, Form, Modal, Row, Tab, Tabs } from "react-bootstrap";
-import { ApiError, addCheck, createDevice, deleteCheck, updateDevice } from "../api.js";
+import { ApiError, addCheck, createDevice, deleteCheck, updateCheck, updateDevice } from "../api.js";
 import { KIND_LABELS } from "./format.js";
 import PortsTab from "./PortsTab.jsx";
+import SnmpTab from "./SnmpTab.jsx";
 import { applyPortChanges, portsOf } from "./ports.js";
+import { applySnmpChanges, buildSnmpPayload, desiredSnmpChecks, snmpFormOf } from "./snmp.js";
 
 const DEFAULTS = {
   name: "",
@@ -68,6 +70,7 @@ export default function DeviceForm({ device, onSaved, onClose }) {
   const [form, setForm] = useState(() => toForm(device));
   const [errors, setErrors] = useState({ fields: {}, general: null });
   const [ports, setPorts] = useState(() => portsOf(device?.checks));
+  const [snmp, setSnmp] = useState(() => snmpFormOf(device));
   const [baseline, setBaseline] = useState(() => device?.checks ?? []);
   const [saving, setSaving] = useState(false);
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
@@ -76,19 +79,41 @@ export default function DeviceForm({ device, onSaved, onClose }) {
     e.preventDefault();
     setSaving(true);
     setErrors({ fields: {}, general: null });
+    let working = baseline;
     try {
       const body = toBody(form);
+      const desired = desiredSnmpChecks(snmp);
+      const payload = buildSnmpPayload(snmp);
       let saved;
       if (device) {
-        saved = await updateDevice(device.id, body);
-        setBaseline(await applyPortChanges(device.id, baseline, ports, { addCheck, deleteCheck }));
+        const snmpApi = { addCheck, updateCheck, deleteCheck };
+        if (payload === null && device.snmp) {
+          // The backend refuses to drop SNMP while SNMP checks exist: delete them first.
+          working = await applySnmpChanges(device.id, working, [], snmpApi);
+          saved = await updateDevice(device.id, { ...body, snmp: null });
+        } else {
+          saved = await updateDevice(device.id, payload ? { ...body, snmp: payload } : body);
+          working = await applySnmpChanges(
+            device.id,
+            await applyPortChanges(device.id, working, ports, { addCheck, deleteCheck }),
+            desired,
+            snmpApi,
+          );
+        }
+        if (payload === null && device.snmp) {
+          working = await applyPortChanges(device.id, working, ports, { addCheck, deleteCheck });
+        }
+        setBaseline(working);
       } else {
-        const checks = ports.map((port) => ({ type: "tcp", params: { port }, enabled: true }));
-        saved = await createDevice({ ...body, checks });
+        const checks = [
+          ...ports.map((port) => ({ type: "tcp", params: { port }, enabled: true })),
+          ...desired.map((c) => ({ ...c, enabled: true })),
+        ];
+        saved = await createDevice({ ...body, ...(payload ? { snmp: payload } : {}), checks });
       }
       await onSaved(saved);
     } catch (err) {
-      if (err.baseline) setBaseline(err.baseline);
+      setBaseline(err.baseline ?? working);
       setErrors(parseError(err));
     } finally {
       setSaving(false);
@@ -153,6 +178,9 @@ export default function DeviceForm({ device, onSaved, onClose }) {
             </Tab>
             <Tab eventKey="ports" title={`Ports${ports.length ? ` (${ports.length})` : ""}`}>
               <PortsTab ports={ports} onChange={setPorts} />
+            </Tab>
+            <Tab eventKey="snmp" title={`SNMP${snmp.version === "off" ? "" : ` (${snmp.version})`}`}>
+              <SnmpTab value={snmp} onChange={setSnmp} current={device?.snmp} />
             </Tab>
           </Tabs>
         </Modal.Body>

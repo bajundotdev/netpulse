@@ -73,6 +73,11 @@ class PysnmpClient:
             self._engine = SnmpEngine()
         return self._engine
 
+    def close(self) -> None:
+        engine, self._engine = self._engine, None
+        if engine is not None:
+            engine.close_dispatcher()
+
     def _auth_data(self, s: SnmpSettings) -> CommunityData | UsmUserData:
         if s.version == "v3":
             return UsmUserData(

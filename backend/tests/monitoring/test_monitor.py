@@ -339,3 +339,46 @@ async def test_result_payload_latency_is_none_when_liveness_failed():
     await mon.run_cycle(device())
     assert bus.of("result")[0]["latency_ms"] is None
     assert store.latency(1) == [None]
+
+
+async def test_snmp_uptime_drop_publishes_one_reboot_event():
+    uptime = FakeChecker([
+        CheckResult(CheckType.SNMP_UPTIME, "snmp uptime", True, value=500000),
+        CheckResult(CheckType.SNMP_UPTIME, "snmp uptime", True, value=1200),
+    ])
+    mon, _, bus = build(FakeChecker([ok()]))
+    mon._factory.register(CheckType.SNMP_UPTIME, lambda c, d: uptime)
+    d = device(checks=(CheckConfig(7, CheckType.SNMP_UPTIME, {}),))
+    await mon.run_cycle(d)
+    await mon.run_cycle(d)
+    reboots = [e for e in bus.of("domain_event") if getattr(e, "kind", None) is EventKind.REBOOT]
+    assert len(reboots) == 1 and reboots[0].check_id == 7
+
+
+async def test_stale_cycle_publishes_no_snmp_events():
+    uptime = FakeChecker([
+        CheckResult(CheckType.SNMP_UPTIME, "snmp uptime", True, value=500000),
+        CheckResult(CheckType.SNMP_UPTIME, "snmp uptime", True, value=1200),
+    ])
+    mon, _, bus = build(FakeChecker([ok()]))
+    mon._factory.register(CheckType.SNMP_UPTIME, lambda c, d: uptime)
+    d = device(checks=(CheckConfig(7, CheckType.SNMP_UPTIME, {}),))
+    await mon.run_cycle(d)
+    await mon.run_cycle(d, generation=99)  # stale: generation no longer matches
+    assert not [e for e in bus.of("domain_event") if getattr(e, "kind", None) is EventKind.REBOOT]
+
+
+def test_snmp_check_without_snmp_settings_fails_to_build():
+    f = default_factory(object())
+    with pytest.raises(ValueError):
+        f.build(CheckConfig(1, CheckType.SNMP_UPTIME, {}), device())
+
+
+def test_pysnmp_client_close_is_safe_twice():
+    from app.monitoring.snmp_client import PysnmpClient
+
+    c = PysnmpClient()
+    c.close()
+    c._get_engine()
+    c.close()
+    c.close()

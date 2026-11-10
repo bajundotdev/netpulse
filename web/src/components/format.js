@@ -55,3 +55,25 @@ export const KIND_LABELS = {
   printer: "Printer",
   other: "Other",
 };
+
+// sysUpTime ticks are 1/100 s.
+export function formatUptime(ticks) {
+  const total = Math.max(0, Math.floor(Number(ticks) / 100));
+  const d = Math.floor(total / 86400);
+  const h = Math.floor((total % 86400) / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+// Detail text for a check result value: interface maps become "name status" lists.
+export function formatResultValue(value) {
+  if (value == null) return "";
+  if (typeof value === "object") {
+    return Object.values(value)
+      .map((v) => (v && typeof v === "object" ? `${v.name ?? ""} ${v.status ?? ""}`.trim() : String(v)))
+      .join(", ");
+  }
+  return String(value);
+}

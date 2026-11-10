@@ -23,6 +23,7 @@ from app.infra.repositories import (
 )
 from app.monitoring.factory import CheckerFactory, default_factory
 from app.monitoring.monitor import Monitor
+from app.monitoring.snmp_client import PysnmpClient
 from app.monitoring.status_store import StatusStore
 from app.services.devices import DeviceService, ValidationFailed
 from app.services.events import EventLogWriter, EventService
@@ -37,6 +38,7 @@ class Container:
     bus: EventBus
     store: StatusStore
     monitor: Monitor
+    snmp_client: PysnmpClient
     broadcaster: SseBroadcaster
     devices: DeviceService
     events: EventService
@@ -57,13 +59,15 @@ def _build_container(settings: Settings, factory: CheckerFactory | None) -> Cont
     for topic in ("status", "result", "event"):
         bus.subscribe(topic, partial(broadcaster.handle, topic))
 
-    monitor = Monitor(factory or default_factory(), store, bus)
+    snmp_client = PysnmpClient()
+    monitor = Monitor(factory or default_factory(snmp_client), store, bus)
     return Container(
         settings=settings,
         session_factory=session_factory,
         bus=bus,
         store=store,
         monitor=monitor,
+        snmp_client=snmp_client,
         broadcaster=broadcaster,
         devices=DeviceService(device_repo, check_repo, monitor, store),
         events=EventService(event_repo),
@@ -88,6 +92,7 @@ def create_app(
             yield
         finally:
             await c.monitor.stop()
+            c.snmp_client.close()
             c.session_factory.kw["bind"].dispose()
 
     app = FastAPI(title="NetPulse", lifespan=lifespan)

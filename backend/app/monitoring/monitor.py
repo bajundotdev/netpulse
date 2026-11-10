@@ -5,6 +5,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import asdict
 from datetime import UTC, datetime
 
+from app.domain.detectors import ChangeTracker
 from app.domain.models import (
     CheckConfig,
     CheckResult,
@@ -40,6 +41,7 @@ class Monitor:
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
         restart_delay_s: float = 5.0,
         stagger_s: float = 1.0,
+        tracker: ChangeTracker | None = None,
     ) -> None:
         self._factory = factory
         self._store = store
@@ -48,6 +50,7 @@ class Monitor:
         self._clock = clock
         self._restart_delay_s = restart_delay_s
         self._stagger_s = stagger_s
+        self._tracker = tracker or ChangeTracker()
         self._tasks: dict[int, asyncio.Task] = {}
         self._generation: dict[int, int] = {}
 
@@ -96,6 +99,7 @@ class Monitor:
         if old is not None:
             old.cancel()
         self._generation.pop(device_id, None)
+        self._tracker.forget(device_id)
         self._store.remove(device_id)
         await self._reap(old)
 
@@ -184,6 +188,10 @@ class Monitor:
         self._store.add_latency(device.id, latency)
         if event is not None:
             await self._publish_change(device.id, prev, state, event)
+        checks = [c for c in device.checks if c.enabled]
+        for check, result in zip(checks, others):
+            for ev in self._tracker.observe(device.id, device.name, check, result):
+                await self._bus.publish("domain_event", ev)
         await self._bus.publish(
             "result",
             {

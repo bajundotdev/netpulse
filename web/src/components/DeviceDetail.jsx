@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Alert, Badge, Button, Modal, Table } from "react-bootstrap";
 import { deleteDevice, testDevice, updateDevice } from "../api.js";
 import { useMonitor } from "../state/MonitorContext.jsx";
-import { KIND_LABELS, statusVariant } from "./format.js";
+import { KIND_LABELS, formatResultValue, statusVariant } from "./format.js";
 
 function ResultsTable({ results }) {
   if (!results || results.length === 0) return <p className="text-body-secondary small mb-0">No results yet.</p>;
@@ -24,7 +24,7 @@ function ResultsTable({ results }) {
               <Badge bg={r.ok ? "success" : "danger"}>{r.ok ? "OK" : "FAIL"}</Badge>
             </td>
             <td className="text-end font-monospace">{r.latency_ms == null ? "-" : `${Math.round(r.latency_ms)} ms`}</td>
-            <td className="small">{r.reason ?? (r.value == null ? "" : String(r.value))}</td>
+            <td className="small">{r.reason ?? formatResultValue(r.value)}</td>
           </tr>
         ))}
       </tbody>
