@@ -201,3 +201,18 @@ def test_delete_device_then_list_events(client):
     after = client.get("/api/events").json()
     assert len(after) == len(events) and after[0]["device_id"] is None
     assert client.get("/api/status").json() == []
+
+
+BAD_SNMP = {"version": "v3", "user": "mon", "auth_proto": "SHA", "auth_key": "short",
+            "community": "TOPSECRET"}
+
+
+def test_validation_errors_do_not_echo_secrets(client):
+    r = client.post("/api/devices", json={**SW, "snmp": BAD_SNMP})
+    assert r.status_code == 422
+    assert "short" not in r.text and "TOPSECRET" not in r.text
+    assert r.json()["detail"][0]["loc"] and r.json()["detail"][0]["msg"]
+    d = make(client, name="SW9")
+    r = client.put(f"/api/devices/{d['id']}", json={"snmp": BAD_SNMP})
+    assert r.status_code == 422
+    assert "short" not in r.text and "TOPSECRET" not in r.text

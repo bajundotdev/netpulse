@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from functools import partial
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import sessionmaker
@@ -102,6 +103,12 @@ def create_app(
     @app.exception_handler(ValidationFailed)
     async def _invalid(_: Request, exc: ValidationFailed) -> JSONResponse:
         return JSONResponse({"detail": str(exc)}, status_code=422)
+
+    @app.exception_handler(RequestValidationError)
+    async def _invalid_request(_: Request, exc: RequestValidationError) -> JSONResponse:
+        # Drop pydantic's `input`/`ctx`: they would echo write-only SNMP secrets.
+        errors = [{"loc": e["loc"], "msg": e["msg"], "type": e["type"]} for e in exc.errors()]
+        return JSONResponse({"detail": errors}, status_code=422)
 
     app.include_router(routes.router, prefix="/api")
     app.include_router(sse.router, prefix="/api")
