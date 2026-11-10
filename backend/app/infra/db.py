@@ -42,6 +42,7 @@ class DeviceRow(Base):
 
 class CheckRow(Base):
     __tablename__ = "checks"
+    __table_args__ = {"sqlite_autoincrement": True}  # never reuse ids after a delete
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     device_id: Mapped[int] = mapped_column(
@@ -55,6 +56,7 @@ class CheckRow(Base):
 
 class EventRow(Base):
     __tablename__ = "events"
+    __table_args__ = {"sqlite_autoincrement": True}  # never reuse ids after a clear
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     ts: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)

@@ -6,9 +6,11 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from sqlalchemy.orm import sessionmaker
 
 from app.api import routes, sse
+from app.api.guard import OriginGuard, allowed_hosts, allowed_origins
 from app.api.sse import SseBroadcaster
 from app.config import REPO_ROOT, Settings
 from app.infra.bus import EventBus
@@ -96,6 +98,10 @@ def create_app(
             c.session_factory.kw["bind"].dispose()
 
     app = FastAPI(title="NetPulse", lifespan=lifespan)
+    hosts = allowed_hosts(settings)
+    # Outermost first: an unknown Host (DNS rebinding) is refused before any Origin check.
+    app.add_middleware(OriginGuard, origins=allowed_origins(hosts, settings.port))
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=hosts, www_redirect=False)
 
     @app.exception_handler(NotFoundError)
     async def _not_found(_: Request, exc: NotFoundError) -> JSONResponse:

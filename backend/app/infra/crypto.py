@@ -1,6 +1,10 @@
+import hashlib
+import logging
 from pathlib import Path
 
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
+
+log = logging.getLogger(__name__)
 
 
 class SecretBox:
@@ -19,6 +23,7 @@ class SecretBox:
             except OSError:
                 pass
         self._fernet = Fernet(key)
+        self._warned: set[str] = set()  # digests of undecryptable tokens already reported
 
     def encrypt(self, value: str | None) -> str | None:
         if value is None:
@@ -26,6 +31,14 @@ class SecretBox:
         return self._fernet.encrypt(value.encode()).decode()
 
     def decrypt(self, token: str | None) -> str | None:
+        """Returns None for a secret the current key cannot read (key file lost or replaced)."""
         if token is None:
             return None
-        return self._fernet.decrypt(token.encode()).decode()
+        try:
+            return self._fernet.decrypt(token.encode()).decode()
+        except InvalidToken:
+            digest = hashlib.sha256(token.encode()).hexdigest()
+            if digest not in self._warned:
+                self._warned.add(digest)
+                log.warning("stored SNMP secret could not be decrypted; re-enter it")
+            return None

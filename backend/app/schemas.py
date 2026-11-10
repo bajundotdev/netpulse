@@ -30,7 +30,9 @@ SNMP_CHECK_TYPES = frozenset({"snmp_uptime", "snmp_if", "snmp_oid"})
 
 def _check_host(value: str) -> str:
     value = value.strip()
-    if _HOSTNAME_RE.match(value):
+    # A numeric last label ("10.1", "10.0.0.256", "dc01.123") is never a hostname:
+    # it must be a valid IP address, or getaddrinfo would expand it to some other host.
+    if _HOSTNAME_RE.match(value) and not value.rsplit(".", 1)[-1].isdigit():
         return value
     try:
         ipaddress.ip_address(value)

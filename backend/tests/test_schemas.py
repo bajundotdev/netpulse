@@ -9,7 +9,11 @@ def test_device_in_accepts_valid_hosts(host):
     assert DeviceIn(name="x", host=host).host == host
 
 
-@pytest.mark.parametrize("host", ["", "dc 01", "http://dc01", "-dc01", "dc01-", "a" * 254])
+@pytest.mark.parametrize(
+    "host",
+    ["", "dc 01", "http://dc01", "-dc01", "dc01-", "a" * 254,
+     "192.168.1", "10.1", "10.0.0.256", "dc01.123"],
+)
 def test_device_in_rejects_bad_hosts(host):
     with pytest.raises(ValidationError):
         DeviceIn(name="x", host=host)

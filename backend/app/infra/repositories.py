@@ -66,6 +66,14 @@ class DeviceRepository:
             s.delete(row)
             s.commit()
 
+    def secret_flags(self, row: DeviceRow) -> dict[str, bool]:
+        """has_* flags from successful decryption: an unreadable secret counts as missing."""
+        return {
+            "has_community": self._box.decrypt(row.snmp_community_enc) is not None,
+            "has_auth_key": self._box.decrypt(row.snmp_auth_key_enc) is not None,
+            "has_priv_key": self._box.decrypt(row.snmp_priv_key_enc) is not None,
+        }
+
     def to_config(self, row: DeviceRow) -> DeviceConfig:
         snmp = None
         if row.snmp_version is not None:

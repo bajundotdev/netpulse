@@ -30,5 +30,5 @@ def settings(tmp_path):
 @pytest.fixture
 def client(settings):
     app = create_app(settings, factory=fake_factory(), start_monitor=False)
-    with TestClient(app) as c:
+    with TestClient(app, base_url="http://localhost") as c:
         yield c

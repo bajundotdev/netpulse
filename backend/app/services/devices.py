@@ -64,6 +64,29 @@ def _snmp_fields(snmp: SnmpIn | None) -> dict[str, Any]:
     return fields
 
 
+def _validate_merged_snmp(snmp: SnmpIn, stored: dict[str, bool]) -> None:
+    """The SNMP settings an update leaves behind must be usable.
+
+    A secret counts when sent now (non-empty) or, when omitted (None), already stored.
+    """
+    def present(sent: str | None, flag: str) -> bool:
+        return bool(sent) if sent is not None else stored[flag]
+
+    if snmp.version == "v2c":
+        if not present(snmp.community, "has_community"):
+            raise ValidationFailed("SNMPv2c requires a community")
+        return
+    if not snmp.user:
+        raise ValidationFailed("SNMPv3 requires a user")
+    if snmp.auth_proto != "none" and not present(snmp.auth_key, "has_auth_key"):
+        raise ValidationFailed("SNMPv3 authentication requires an auth key")
+    if snmp.priv_proto != "none":
+        if snmp.auth_proto == "none":
+            raise ValidationFailed("SNMPv3 privacy requires authentication")
+        if not present(snmp.priv_key, "has_priv_key"):
+            raise ValidationFailed("SNMPv3 privacy requires a priv key")
+
+
 def _utc(dt):
     return dt.replace(tzinfo=UTC)
 
@@ -103,9 +126,7 @@ class DeviceService:
                 user=row.snmp_user,
                 auth_proto=row.snmp_auth_proto,
                 priv_proto=row.snmp_priv_proto,
-                has_community=bool(row.snmp_community_enc),
-                has_auth_key=bool(row.snmp_auth_key_enc),
-                has_priv_key=bool(row.snmp_priv_key_enc),
+                **self._devices.secret_flags(row),
             )
         return DeviceOut(
             id=row.id,
@@ -156,6 +177,8 @@ class DeviceService:
         except ValueError as exc:
             raise ValidationFailed(str(exc)) from exc
         if "snmp" in data.model_fields_set:
+            if data.snmp is not None:
+                _validate_merged_snmp(data.snmp, self._devices.secret_flags(current))
             fields.update(_snmp_fields(data.snmp))
             if data.snmp is None and any(
                 c.type in SNMP_CHECK_TYPES for c in self._checks.list_for_device(id)

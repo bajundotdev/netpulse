@@ -51,7 +51,8 @@ def test_unknown_device_is_404(client):
 
 
 def test_validation_is_422(client):
-    assert client.post("/api/devices", json={"name": "x", "host": "bad host"}).status_code == 422
+    for host in ("bad host", "192.168.1", "10.1", "10.0.0.256", "dc01.123"):
+        assert client.post("/api/devices", json={"name": "x", "host": host}).status_code == 422
     d = make(client)
     assert client.put(f"/api/devices/{d['id']}", json={"interval_s": 1}).status_code == 422
     # timing is checked against the stored values: 4 s timeout fits the 5 s interval, a 3 s interval does not
@@ -84,9 +85,10 @@ def test_secret_is_encrypted_at_rest_and_kept_on_update(client):
     # resending snmp without a community keeps the stored one
     r = client.put(f"/api/devices/{d['id']}", json={"snmp": {"version": "v2c", "port": 1161}})
     assert r.json()["snmp"]["port"] == 1161 and r.json()["snmp"]["has_community"] is True
-    # empty string clears it
+    # empty string clears it, which would leave v2c unusable: rejected, stored one kept
     r = client.put(f"/api/devices/{d['id']}", json={"snmp": {"version": "v2c", "community": ""}})
-    assert r.json()["snmp"]["has_community"] is False
+    assert r.status_code == 422
+    assert client.get(f"/api/devices/{d['id']}").json()["snmp"]["has_community"] is True
 
 
 def test_update_snmp_null_removes_snmp_and_omitted_keeps_it(client):
@@ -97,6 +99,34 @@ def test_update_snmp_null_removes_snmp_and_omitted_keeps_it(client):
     assert kept["snmp"]["has_community"] is True and kept["notes"] == "x"
     gone = client.put(f"/api/devices/{d['id']}", json={"snmp": None}).json()
     assert gone["snmp"] is None
+
+
+def test_edit_to_unusable_snmp_is_422(client):
+    d = make(client)
+    # off -> v2c without a community
+    r = client.put(f"/api/devices/{d['id']}", json={"snmp": {"version": "v2c"}})
+    assert r.status_code == 422 and isinstance(r.json()["detail"], str)
+    # v2c -> v3 with auth/priv protocols but no keys
+    v2 = make(client, name="SW2", snmp={"version": "v2c", "community": "public"})
+    r = client.put(f"/api/devices/{v2['id']}", json={"snmp": {
+        "version": "v3", "user": "admin", "auth_proto": "SHA", "priv_proto": "AES128"}})
+    assert r.status_code == 422 and isinstance(r.json()["detail"], str)
+    # v3 auth only -> add privacy without a priv key
+    v3 = make(client, name="SW3", snmp={"version": "v3", "user": "admin",
+                                        "auth_proto": "SHA", "auth_key": "authsecret1"})
+    r = client.put(f"/api/devices/{v3['id']}", json={"snmp": {
+        "version": "v3", "user": "admin", "auth_proto": "SHA", "priv_proto": "AES128"}})
+    assert r.status_code == 422
+    # keys stored earlier still count
+    r = client.put(f"/api/devices/{v3['id']}", json={"snmp": {
+        "version": "v3", "user": "admin", "auth_proto": "SHA", "port": 1161}})
+    assert r.status_code == 200 and r.json()["snmp"]["has_auth_key"] is True
+
+
+def test_v2c_edit_of_port_keeps_stored_community(client):
+    d = make(client, snmp={"version": "v2c", "community": "public"})
+    r = client.put(f"/api/devices/{d['id']}", json={"snmp": {"version": "v2c", "port": 1161}})
+    assert r.status_code == 200 and r.json()["snmp"]["has_community"] is True
 
 
 def test_removing_snmp_with_snmp_checks_is_422(client):

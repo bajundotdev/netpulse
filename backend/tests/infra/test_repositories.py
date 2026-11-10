@@ -138,3 +138,18 @@ def test_ack_and_clear(events):
     events.ack(e["id"])
     assert events.list()[0]["acknowledged"] is True
     assert events.clear() == 1 and events.list() == []
+
+
+def test_event_ids_are_not_reused_after_clear(events):
+    first = events.add(DomainEvent(None, Severity.INFO, EventKind.CHECK_ERROR, "a"))
+    events.clear()
+    second = events.add(DomainEvent(None, Severity.INFO, EventKind.CHECK_ERROR, "b"))
+    assert second["id"] > first["id"]
+
+
+def test_check_ids_are_not_reused_after_delete(devices, checks):
+    d = devices.create({"name": "x", "host": "10.0.0.1"})
+    first = checks.create(d.id, {"type": "tcp", "params": {"port": 80}})
+    checks.delete(first.id)
+    second = checks.create(d.id, {"type": "tcp", "params": {"port": 80}})
+    assert second.id > first.id
