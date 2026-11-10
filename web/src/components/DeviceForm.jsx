@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { Alert, Button, Col, Form, Modal, Row, Tab, Tabs } from "react-bootstrap";
-import { ApiError, createDevice, updateDevice } from "../api.js";
+import { ApiError, addCheck, createDevice, deleteCheck, updateDevice } from "../api.js";
 import { KIND_LABELS } from "./format.js";
+import PortsTab from "./PortsTab.jsx";
+import { diffChecks, portsOf } from "./ports.js";
 
 const DEFAULTS = {
   name: "",
@@ -65,6 +67,7 @@ function parseError(err) {
 export default function DeviceForm({ device, onSaved, onClose }) {
   const [form, setForm] = useState(() => toForm(device));
   const [errors, setErrors] = useState({ fields: {}, general: null });
+  const [ports, setPorts] = useState(() => portsOf(device?.checks));
   const [saving, setSaving] = useState(false);
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
@@ -74,7 +77,16 @@ export default function DeviceForm({ device, onSaved, onClose }) {
     setErrors({ fields: {}, general: null });
     try {
       const body = toBody(form);
-      const saved = device ? await updateDevice(device.id, body) : await createDevice(body);
+      let saved;
+      if (device) {
+        saved = await updateDevice(device.id, body);
+        const { add, remove } = diffChecks(device.checks ?? [], ports);
+        for (const port of add) await addCheck(device.id, { type: "tcp", params: { port }, enabled: true });
+        for (const check of remove) await deleteCheck(check.id);
+      } else {
+        const checks = ports.map((port) => ({ type: "tcp", params: { port }, enabled: true }));
+        saved = await createDevice({ ...body, checks });
+      }
       await onSaved(saved);
     } catch (err) {
       setErrors(parseError(err));
@@ -138,6 +150,9 @@ export default function DeviceForm({ device, onSaved, onClose }) {
                 <Col xs={4}>{field("timeout_ms", "Timeout (ms)", { type: "number", min: 200, max: 10000 })}</Col>
               </Row>
               {field("notes", "Notes", { as: "textarea", rows: 2 })}
+            </Tab>
+            <Tab eventKey="ports" title={`Ports${ports.length ? ` (${ports.length})` : ""}`}>
+              <PortsTab ports={ports} onChange={setPorts} />
             </Tab>
           </Tabs>
         </Modal.Body>
