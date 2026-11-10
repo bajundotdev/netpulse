@@ -10,6 +10,7 @@ from app.domain.models import (
     CheckResult,
     CheckType,
     DeviceConfig,
+    DeviceStatus,
     DomainEvent,
     EventKind,
     Severity,
@@ -62,36 +63,46 @@ class Monitor:
         await asyncio.gather(*tasks, return_exceptions=True)
 
     async def upsert(self, device: DeviceConfig) -> None:
-        await self._cancel(device.id)
+        # Swap synchronously (no await between pop and store) so concurrent calls cannot orphan a task.
+        old = self._tasks.pop(device.id, None)
+        if old is not None:
+            old.cancel()
         generation = self._generation.get(device.id, 0) + 1
         self._generation[device.id] = generation
+        prev = self._store.state(device.id)
         if device.enabled:
-            self._tasks[device.id] = asyncio.create_task(self._loop(device))
+            if prev is None or prev.status is DeviceStatus.PAUSED:
+                self._store.set_state(device.id, DeviceState.initial(self._clock()))
+            self._tasks[device.id] = asyncio.create_task(self._loop(device, generation))
+        await self._reap(old)
+        if device.enabled or self._generation.get(device.id) != generation:
             return
-        prev = self._store.state(device.id) or DeviceState.initial(self._clock())
+        prev = prev or DeviceState.initial(self._clock())
         state, event = paused_state(prev, device.name, device.id, self._clock())
         self._store.set_state(device.id, state)
         if event is not None:
             await self._publish_change(device.id, prev, state, event)
 
     async def remove(self, device_id: int) -> None:
-        await self._cancel(device_id)
+        old = self._tasks.pop(device_id, None)
+        if old is not None:
+            old.cancel()
         self._generation.pop(device_id, None)
         self._store.remove(device_id)
+        await self._reap(old)
 
-    async def _cancel(self, device_id: int) -> None:
-        task = self._tasks.pop(device_id, None)
+    @staticmethod
+    async def _reap(task: asyncio.Task | None) -> None:
         if task is not None:
-            task.cancel()
             await asyncio.gather(task, return_exceptions=True)
 
-    async def _loop(self, device: DeviceConfig) -> None:
+    async def _loop(self, device: DeviceConfig, generation: int) -> None:
         await asyncio.sleep(random.uniform(0, self._stagger_s))
         loop = asyncio.get_running_loop()
         while True:
             started = loop.time()
             try:
-                await self.run_cycle(device)
+                await self.run_cycle(device, generation)
             except asyncio.CancelledError:
                 raise
             except Exception as e:
@@ -113,9 +124,13 @@ class Monitor:
     async def _run_one(self, check: CheckConfig, device: DeviceConfig, host: str) -> CheckResult:
         try:
             checker = self._factory.build(check, device)
-            result = await checker.check(host, device.timeout_ms)
+            result = await asyncio.wait_for(
+                checker.check(host, device.timeout_ms), device.timeout_ms / 1000 + 1
+            )
         except asyncio.CancelledError:
             raise
+        except TimeoutError:
+            result = CheckResult(check.type, _liveness_label(check), False, reason="timeout")
         except Exception as e:
             result = CheckResult(check.type, _liveness_label(check), False, reason=f"error: {e}")
         if result.check_id is None:
@@ -142,8 +157,11 @@ class Monitor:
     async def test(self, device: DeviceConfig) -> list[CheckResult]:
         return await self._run_checks(device)
 
-    async def run_cycle(self, device: DeviceConfig) -> list[CheckResult]:
-        generation = self._generation.get(device.id)
+    async def run_cycle(
+        self, device: DeviceConfig, generation: int | None = None
+    ) -> list[CheckResult]:
+        if generation is None:
+            generation = self._generation.get(device.id)
         results = await self._run_checks(device)
         if self._generation.get(device.id) != generation:
             return results

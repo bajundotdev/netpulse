@@ -223,11 +223,11 @@ async def test_loop_restarts_after_unexpected_error_and_logs_check_error():
     real = mon.run_cycle
     calls = {"n": 0}
 
-    async def flaky(d):
+    async def flaky(d, generation=None):
         calls["n"] += 1
         if calls["n"] == 1:
             raise RuntimeError("kaput")
-        return await real(d)
+        return await real(d, generation)
 
     mon.run_cycle = flaky
     await mon.upsert(device(interval_s=2))
@@ -265,3 +265,46 @@ async def test_event_bus_handler_error_is_isolated():
     bus.subscribe("t", good)
     await bus.publish("t", 1)
     assert seen == [1]
+
+
+class SlowCancelChecker:
+    async def check(self, host, timeout_ms):
+        try:
+            await asyncio.sleep(10)
+        except asyncio.CancelledError:
+            await asyncio.sleep(0.05)
+            raise
+
+
+async def test_concurrent_upserts_leave_one_live_loop():
+    mon, _, _ = build(SlowCancelChecker())
+    d = device()
+    await mon.upsert(d)
+    await asyncio.sleep(0.02)
+    await asyncio.gather(mon.upsert(d), mon.upsert(d))
+    await asyncio.sleep(0.02)
+    live = [t for t in asyncio.all_tasks() if t.get_coro().__qualname__ == "Monitor._loop" and not t.done()]
+    assert len(live) == 1 and len(mon._tasks) == 1
+    await mon.stop()
+    live = [t for t in asyncio.all_tasks() if t.get_coro().__qualname__ == "Monitor._loop" and not t.done()]
+    assert live == []
+
+
+async def test_hung_checker_times_out_with_reason_timeout():
+    mon, _, _ = build(FakeChecker([ok()], delay=30))
+    loop = asyncio.get_running_loop()
+    start = loop.time()
+    results = await mon.run_cycle(device(timeout_ms=200))
+    assert loop.time() - start < 2.0
+    assert results[0].ok is False and results[0].reason == "timeout"
+
+
+async def test_reenabled_device_resets_paused_to_unknown():
+    mon, store, _ = build(FakeChecker([fail()]), )
+    await mon.upsert(device(enabled=False))
+    assert store.state(1).status is DeviceStatus.PAUSED
+    await mon.upsert(device(fail_threshold=2))
+    assert store.state(1).status is DeviceStatus.UNKNOWN
+    await asyncio.sleep(0.05)
+    await mon.stop()
+    assert store.state(1).status is DeviceStatus.UNKNOWN
