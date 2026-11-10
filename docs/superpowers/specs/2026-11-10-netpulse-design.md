@@ -1,6 +1,6 @@
 # NetPulse — Design Spec
 
-Date: 2026-11-10 · Status: draft for review · Owner: Bajun
+Date: 2026-11-10 · Status: approved 2026-11-10 · Owner: Bajun
 Mirrored in the vault as `01-Projects/NetPulse/02-design.md`; gates, ADRs, risks and the
 sprint log live there.
 
