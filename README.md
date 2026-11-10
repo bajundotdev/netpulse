@@ -55,15 +55,17 @@ by the backend itself, so a normal run needs only one process.
 
 - Windows 10/11 (the ping checker parses the output of Windows `ping.exe`).
 - **Python 3.12 or newer** on PATH (the `py` launcher or `python`).
-- **Node.js 20 or newer**, only once, to build the web UI the first time (or when you
-  change the frontend). Not needed afterwards.
+- **Node.js 22 LTS** (20.19+ minimum to build), only once, to build the web UI the first
+  time (or when you change the frontend). Not needed afterwards.
 - No admin rights needed.
 
 ## Start and stop
 
 Double-click **`run.bat`**. On the first run it creates `backend\.venv`, installs the
 Python dependencies, builds the UI (`npm ci`, `npm run build`), then starts the server and
-opens <http://localhost:8765>. If the browser opens before the server is ready, refresh.
+opens <http://localhost:8765> (or the port in `NETPULSE_PORT`). If the browser opens before
+the server is ready, refresh. If the dependency install fails (for example no internet),
+fix the cause and run `run.bat` again: it retries the install until one succeeds.
 
 To stop, press `Ctrl+C` in the console window or close it.
 
@@ -81,10 +83,17 @@ cd backend
 | `NETPULSE_HOST` | `127.0.0.1` | Address to bind. |
 | `NETPULSE_PORT` | `8765` | Port to listen on. |
 | `NETPULSE_DATA_DIR` | `<repo>/data` | Folder for the database and key. |
+| `NETPULSE_ALLOWED_HOSTS` | (empty) | Extra host names, comma separated, the server answers to when `NETPULSE_HOST` is not a loopback address (for example `netpulse.corp.local`). |
 
 > **Warning:** NetPulse has no login. Keep `NETPULSE_HOST` at `127.0.0.1`. Binding to
 > `0.0.0.0` or a LAN address lets anyone who can reach the port read your device list,
 > change checks and clear the log.
+
+The server only answers requests whose `Host` header is `localhost`, `127.0.0.1` or
+`[::1]` (plus, when bound beyond loopback, the bind address and `NETPULSE_ALLOWED_HOSTS`);
+anything else gets `400`. This stops a malicious web page from reaching the API through
+DNS rebinding. Writes (`POST`/`PUT`/`DELETE`) that carry an `Origin` header from any other
+site get `403`.
 
 ### Dev mode
 
@@ -144,8 +153,9 @@ network gear prefer **SNMP v3 with authPriv**; v2c sends the community in clear 
 - `netpulse.db`: devices, checks and the event log.
 - `secret.key`: encrypts the SNMP secrets in the database.
 
-Back them up **together**. If you lose `secret.key`, the stored SNMP communities and keys
-cannot be read and you must re-enter them. The key sits beside the database, so the PC
+Back them up **together**. If you lose `secret.key`, a new key is made on the next start
+and the stored SNMP communities and keys can no longer be read: NetPulse still starts,
+logs a warning, shows those secrets as not set, and you must re-enter them. The key sits beside the database, so the PC
 itself is the trust boundary: do not copy `data/` to shared locations. Secrets are
 write-only through the API and never logged.
 
@@ -164,7 +174,10 @@ devices, history and the key.
 - **SNMP checks fail with `timeout`:** the SNMP service is not running, the community or
   v3 credentials are wrong, or the NetPulse PC is not in the allowed hosts list.
 - **Port already in use:** set `NETPULSE_PORT` to another value.
-- **`run.bat` says Node.js is needed:** install Node 20+ once to build the UI.
+- **`run.bat` says Node.js is needed:** install Node 22 LTS (20.19+) once to build the UI.
+- **`400 Invalid host header`:** you opened NetPulse by a name it does not know. Use
+  `http://localhost:8765`, or add the name to `NETPULSE_ALLOWED_HOSTS` when bound to a LAN
+  address.
 
 ## Security
 
@@ -196,3 +209,7 @@ automated tests. Run them once before relying on NetPulse:
 - [ ] SNMP against a real Windows Server and a network device: uptime, interface and OID
       values appear; reboot the Windows host and see a `reboot` event.
 - [ ] Browser notification, beep and flashing tab title fire on a `DOWN` event.
+- [ ] CPU under 5 % with 50 ping devices.
+- [ ] A switch with 50+ interfaces: the interfaces check finishes under the timeout (no
+      `interfaces timeout` and no `DEGRADED` from it).
+- [ ] Two SNMPv3 devices sharing a username with different keys both answer.
