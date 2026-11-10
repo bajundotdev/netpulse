@@ -331,3 +331,11 @@ async def test_new_enabled_device_publishes_unknown_status_with_null_previous():
     assert first["status"] == "UNKNOWN" and first["previous_status"] is None
     assert bus.of("domain_event") == []
     await mon.stop()
+
+
+async def test_result_payload_latency_is_none_when_liveness_failed():
+    failed_with_latency = CheckResult(CheckType.PING, "ping", False, latency_ms=9.0, reason="timeout")
+    mon, store, bus = build(FakeChecker([failed_with_latency]))
+    await mon.run_cycle(device())
+    assert bus.of("result")[0]["latency_ms"] is None
+    assert store.latency(1) == [None]

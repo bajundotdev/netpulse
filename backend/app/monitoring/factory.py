@@ -3,6 +3,7 @@ from collections.abc import Callable
 from app.domain.models import CheckConfig, CheckType, DeviceConfig
 from app.monitoring.checkers.base import Checker
 from app.monitoring.checkers.ping import PingChecker
+from app.monitoring.checkers.tcp import TcpChecker
 
 Builder = Callable[[CheckConfig, DeviceConfig], Checker]
 
@@ -24,4 +25,5 @@ class CheckerFactory:
 def default_factory() -> CheckerFactory:
     factory = CheckerFactory()
     factory.register(CheckType.PING, lambda check, device: PingChecker())
+    factory.register(CheckType.TCP, lambda check, device: TcpChecker(int(check.params["port"])))
     return factory

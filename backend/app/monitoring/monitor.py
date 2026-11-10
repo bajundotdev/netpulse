@@ -180,7 +180,8 @@ class Monitor:
         )
         self._store.set_state(device.id, state)
         self._store.set_results(device.id, results)
-        self._store.add_latency(device.id, liveness.latency_ms if liveness.ok else None)
+        latency = liveness.latency_ms if liveness.ok else None
+        self._store.add_latency(device.id, latency)
         if event is not None:
             await self._publish_change(device.id, prev, state, event)
         await self._bus.publish(
@@ -188,7 +189,7 @@ class Monitor:
             {
                 "device_id": device.id,
                 "results": [asdict(r) for r in results],
-                "latency_ms": liveness.latency_ms,
+                "latency_ms": latency,
             },
         )
         return results
