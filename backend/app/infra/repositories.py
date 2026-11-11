@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import aliased, sessionmaker
 
 from app.domain.history import Transition
 from app.domain.models import CheckConfig, CheckType, DeviceConfig, DomainEvent, SnmpSettings
@@ -280,20 +280,7 @@ class StatusHistoryRepository:
     def window_rows(self, start: datetime, end: datetime) -> dict[int, list[Transition]]:
         """Per device, rows in [start, end] by (ts, id), plus its newest row before start."""
         lo, hi = _naive_utc(start), _naive_utc(end)
-        newest = (
-            select(
-                StatusHistoryRow.id.label("id"),
-                func.row_number()
-                .over(
-                    partition_by=StatusHistoryRow.device_id,
-                    order_by=(StatusHistoryRow.ts.desc(), StatusHistoryRow.id.desc()),
-                )
-                .label("rn"),
-            )
-            .where(StatusHistoryRow.ts < lo)
-            .subquery()
-        )
-        before_start = select(newest.c.id).where(newest.c.rn == 1)
+        before_start = self._newest_before_ids(lo)
         stmt = (
             select(StatusHistoryRow)
             .where(
@@ -308,23 +295,45 @@ class StatusHistoryRepository:
                 out.setdefault(r.device_id, []).append((r.ts.replace(tzinfo=UTC), r.status))
         return out
 
+    @staticmethod
+    def _newest_before_ids(lo: datetime):
+        """Id of each device's newest row before `lo`, via the (device_id, ts) index."""
+        prev = aliased(StatusHistoryRow)
+        newest_ts = (
+            select(prev.id)
+            .where(prev.device_id == DeviceRow.id, prev.ts < lo)
+            .order_by(prev.ts.desc(), prev.id.desc())
+            .limit(1)
+            .scalar_subquery()
+        )
+        return select(newest_ts).select_from(DeviceRow).where(newest_ts.is_not(None))
+
     def problem_entries_since(self, since: datetime) -> int:
         """Rows since `since` that enter DOWN/DEGRADED from a different (or no) previous status."""
-        ranked = select(
-            StatusHistoryRow.ts.label("ts"),
-            StatusHistoryRow.status.label("status"),
-            func.lag(StatusHistoryRow.status)
-            .over(
-                partition_by=StatusHistoryRow.device_id,
-                order_by=(StatusHistoryRow.ts, StatusHistoryRow.id),
+        lo = _naive_utc(since)
+        # Only rows in the window plus each device's newest earlier row (the "previous").
+        relevant = select(StatusHistoryRow.id).where(
+            (StatusHistoryRow.ts >= lo) | StatusHistoryRow.id.in_(self._newest_before_ids(lo))
+        )
+        ranked = (
+            select(
+                StatusHistoryRow.ts.label("ts"),
+                StatusHistoryRow.status.label("status"),
+                func.lag(StatusHistoryRow.status)
+                .over(
+                    partition_by=StatusHistoryRow.device_id,
+                    order_by=(StatusHistoryRow.ts, StatusHistoryRow.id),
+                )
+                .label("prev"),
             )
-            .label("prev"),
-        ).subquery()
+            .where(StatusHistoryRow.id.in_(relevant))
+            .subquery()
+        )
         stmt = (
             select(func.count())
             .select_from(ranked)
             .where(
-                ranked.c.ts >= _naive_utc(since),
+                ranked.c.ts >= lo,
                 ranked.c.status.in_(("DOWN", "DEGRADED")),
                 (ranked.c.prev.is_(None)) | (ranked.c.prev != ranked.c.status),
             )

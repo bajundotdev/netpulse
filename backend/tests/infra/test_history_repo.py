@@ -74,6 +74,14 @@ def test_problem_entries_use_previous_row_before_window(repo):
     assert repo.problem_entries_since(at(-3600)) == 1
 
 
+def test_problem_entries_use_previous_row_from_days_ago(repo):
+    repo.add(1, "DOWN", at(-2 * 86400))
+    repo.add(1, "DOWN", at(-600))  # same as the row two days ago: not an entry
+    repo.add(2, "UP", at(-2 * 86400))
+    repo.add(2, "DOWN", at(-600))  # entry
+    assert repo.problem_entries_since(at(-3600)) == 1
+
+
 def test_problem_entry_without_previous_row_counts(repo):
     repo.add(1, "DOWN", at(-60))
     assert repo.problem_entries_since(at(-3600)) == 1
