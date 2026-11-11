@@ -1,6 +1,6 @@
 # NetPulse — Status panel, list/card views and status history (design addendum)
 
-Date: 2026-11-11 · Status: draft for review · Owner: Bajun
+Date: 2026-11-11 · Status: approved 2026-11-11 · Owner: Bajun
 Extends `2026-11-10-netpulse-design.md`. Mirrored in the vault as
 `01-Projects/NetPulse/02-design addendum - Status panel and views.md`.
 
