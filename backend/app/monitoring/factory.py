@@ -2,6 +2,7 @@ from collections.abc import Callable
 
 from app.domain.models import CheckConfig, CheckType, DeviceConfig
 from app.monitoring.checkers.base import Checker
+from app.monitoring.checkers.http import HttpChecker, HttpClientPool
 from app.monitoring.checkers.ping import PingChecker
 from app.monitoring.checkers.snmp import SnmpIfChecker, SnmpOidChecker, SnmpUptimeChecker
 from app.monitoring.checkers.tcp import TcpChecker
@@ -24,7 +25,9 @@ class CheckerFactory:
         return builder(check, device)
 
 
-def default_factory(snmp_client: SnmpClient | None = None) -> CheckerFactory:
+def default_factory(
+    snmp_client: SnmpClient | None = None, http_pool: HttpClientPool | None = None
+) -> CheckerFactory:
     factory = CheckerFactory()
     shared: list[SnmpClient] = [snmp_client] if snmp_client is not None else []
 
@@ -45,6 +48,13 @@ def default_factory(snmp_client: SnmpClient | None = None) -> CheckerFactory:
             str(p["mode"]), p.get("op"), p.get("value"),
         )
 
+    pool = http_pool or HttpClientPool()
+
+    # secret and cert reader are wired in Task 9 (decrypted secret_enc, CertReader).
+    factory.register(
+        CheckType.HTTP,
+        lambda check, device: HttpChecker(check.params, None, pool, None),
+    )
     factory.register(CheckType.PING, lambda check, device: PingChecker())
     factory.register(CheckType.TCP, lambda check, device: TcpChecker(int(check.params["port"])))
     factory.register(

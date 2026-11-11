@@ -33,6 +33,7 @@ class CheckType(StrEnum):
     SNMP_UPTIME = "snmp_uptime"
     SNMP_IF = "snmp_if"
     SNMP_OID = "snmp_oid"
+    HTTP = "http"
 
 
 @dataclass(frozen=True)
@@ -69,12 +70,15 @@ class DeviceConfig:
     timeout_ms: int = 1000
     liveness: str = "ping"
     liveness_port: int | None = None
+    url: str | None = None
     snmp: SnmpSettings | None = None
     checks: tuple[CheckConfig, ...] = ()
 
     def liveness_check(self) -> CheckConfig:
         if self.liveness == "tcp":
             return CheckConfig(None, CheckType.TCP, {"port": self.liveness_port})
+        if self.liveness == "http":
+            return CheckConfig(None, CheckType.HTTP, {"url": self.url})
         return CheckConfig(None, CheckType.PING, {})
 
 
@@ -87,6 +91,7 @@ class CheckResult:
     latency_ms: float | None = None
     reason: str | None = None
     value: Any = None
+    slow: bool = False  # ok, but slower than the check's slow_ms
 
 
 @dataclass(frozen=True)

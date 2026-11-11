@@ -107,6 +107,7 @@ class DeviceRepository:
             timeout_ms=row.timeout_ms,
             liveness=row.liveness,
             liveness_port=row.liveness_port,
+            url=row.url,
             snmp=snmp,
             checks=checks,
         )

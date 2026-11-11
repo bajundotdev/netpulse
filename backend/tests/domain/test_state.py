@@ -69,3 +69,27 @@ def test_degraded_message_falls_back_when_reason_missing():
     other = CheckResult(type=CheckType.SNMP_OID, label="oid:cpu", ok=False)
     s, ev = next_state(up, "DC01", 1, ok(), [other], 2, T1)
     assert s.status is DeviceStatus.DEGRADED and ev.message == "DC01 DEGRADED: oid:cpu failed"
+
+
+def slow(label: str = "GET /", ms: int = 2350) -> CheckResult:
+    return CheckResult(type=CheckType.HTTP, label=label, ok=True, slow=True, reason=f"slow {ms} ms")
+
+
+def test_slow_other_check_is_degraded():
+    s, ev = next_state(DeviceState(DeviceStatus.UP, 0, T0), "WEB", 1, ok("http"),
+                       [slow("GET /")], 2, T1)
+    assert s.status is DeviceStatus.DEGRADED and ev.severity is Severity.WARNING
+    assert ev.message == "WEB DEGRADED: GET / slow 2350 ms"
+
+
+def test_slow_liveness_is_degraded_not_down():
+    up = DeviceState(DeviceStatus.UP, 0, T0)
+    s, ev = next_state(up, "WEB", 1, slow("http"), [], 1, T1)
+    assert s.status is DeviceStatus.DEGRADED and s.consecutive_failures == 0
+    assert ev.message == "WEB DEGRADED: http slow 2350 ms"
+
+
+def test_slow_liveness_does_not_count_toward_down():
+    prev = DeviceState(DeviceStatus.UP, 1, T0)
+    s, _ = next_state(prev, "WEB", 1, slow("http"), [], 2, T1)
+    assert s.status is DeviceStatus.DEGRADED and s.consecutive_failures == 0
