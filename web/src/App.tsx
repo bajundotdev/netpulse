@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import DeviceDetail from "./components/DeviceDetail";
-import DeviceToolbar from "./components/DeviceToolbar.jsx";
+import DeviceToolbar from "./components/DeviceToolbar";
 import DeviceForm from "./components/DeviceForm";
 import DeviceGrid from "./components/DeviceGrid";
 import DeviceList from "./components/DeviceList";
 import EventLog from "./components/EventLog";
-import StatusPanel from "./components/StatusPanel.jsx";
+import StatusPanel from "./components/StatusPanel";
 import SummaryStrip from "./components/SummaryStrip";
 import TopBar from "./components/TopBar";
 import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";

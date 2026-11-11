@@ -15,8 +15,7 @@
     "noEmit": true,
     "jsx": "react-jsx",
 
-    /* Temporary: the .jsx components are converted in a later task */
-    "allowJs": true,
+    "allowJs": false,
 
     /* Linting */
     "strict": true,

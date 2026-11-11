@@ -1,6 +1,6 @@
 # NetPulse — TypeScript + Tailwind frontend, and website / API monitoring (design addendum)
 
-Date: 2026-11-12 · Status: draft for review · Owner: Bajun
+Date: 2026-11-12 · Status: approved 2026-11-12 · brick A implemented · Owner: Bajun
 Extends `2026-11-10-netpulse-design.md` and `2026-11-11-status-panel-and-views-design.md`.
 Mirrored in the vault as `01-Projects/NetPulse/02-design addendum - TypeScript, Tailwind and HTTP checks.md`.
 
@@ -15,7 +15,7 @@ feature backlog ("Future features - Web, API, third-party, incidents and depende
 | Language | TypeScript, `strict: true` | 7.0.x (native compiler; the default in Vite's `react-ts` starter) |
 | UI library | React | 19.3.x (unchanged) |
 | Styling | Tailwind CSS via `@tailwindcss/vite`, CSS-first config (`@import "tailwindcss"`, `@theme`) | 4.3.x |
-| Components | shadcn/ui (copied into `src/components/ui`, owned by the project), `lucide-react` icons, `class-variance-authority`, `clsx`, `tailwind-merge`, `tw-animate-css` | shadcn CLI 4.23 |
+| Components | shadcn/ui (copied into `src/components/ui`, owned by the project), `lucide-react` icons, `class-variance-authority`, `cn` (class-name helper, replaces `clsx` + `tailwind-merge`; shadcn CLI v4 default), `tw-animate-css` | shadcn CLI 4.23, preset `radix-nova`, neutral base colour (density only; no palette or font change) |
 | Lint | Oxlint (Vite starter default; works with TypeScript 7 — `typescript-eslint` supports TS < 6.1 only) | 1.93.x |
 | Build | `tsc -b && vite build` | Vite 8.3.x |
 | Tests | Vitest + jsdom + Testing Library for components; existing pure-helper tests kept | Vitest 5.1.x |
@@ -81,7 +81,7 @@ web/
 | Form.Control / Select / Check | shadcn `Input`, `Select` (or native `select` styled), `Switch`, `Label` |
 | Badge | shadcn `Badge` + status variants (cva) |
 | Alert | shadcn `Alert` |
-| ButtonGroup (view, range) | shadcn `ToggleGroup` (single, `aria-pressed` built in) |
+| ButtonGroup (view, range) | shadcn `ToggleGroup` (single; Radix exposes `role="radio"` + `aria-checked`, not `aria-pressed`) |
 | ListGroup rows | `ul` + bordered rows; header button with `focus-visible:ring-inset` |
 | Card | shadcn `Card` |
 | Table (event log, detail) | Tailwind `table` |

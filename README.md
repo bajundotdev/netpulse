@@ -37,7 +37,7 @@ last 60 latency samples per device, in memory; status changes are kept for 30 da
 
 ```mermaid
 flowchart LR
-  UI["React + React-Bootstrap"] -- "REST: devices, checks, events" --> API["FastAPI routers"]
+  UI["React + TypeScript + Tailwind (shadcn/ui)"] -- "REST: devices, checks, events" --> API["FastAPI routers"]
   API -- "SSE /api/stream" --> UI
   API --> SVC["Services"]
   SVC --> REPO[("SQLite via repositories")]
@@ -53,7 +53,8 @@ flowchart LR
 ```
 
 Backend: FastAPI + an asyncio scheduler (one task per device) + SQLite. REST for CRUD,
-Server-Sent Events for live push. Frontend: React, built once into `web/dist` and served
+Server-Sent Events for live push. Frontend: React with TypeScript, Tailwind CSS and
+shadcn/ui components, built once into `web/dist` and served
 by the backend itself, so a normal run needs only one process.
 
 ## Requirements
@@ -112,6 +113,12 @@ cd web && npm install && npm run dev
 ```
 
 Tests: `cd backend && .venv/bin/pytest` and `cd web && npm test`.
+Frontend checks, from `web/`: `npm run lint` (Oxlint) and `npm run typecheck` (TypeScript).
+`npm run gen:api` regenerates `src/api/schema.d.ts` from the backend's OpenAPI schema.
+It needs `backend/.venv`, and network access on the first run, because it fetches
+pinned `typescript@5.9.3` and `openapi-typescript@7.13.0` through `npx`. Run it after you
+change an API model and commit the result: the frontend test fails if the committed
+file is stale.
 CPU budget check (no network used): `cd backend && .venv/bin/python scripts/perf_check.py`.
 
 ## Using it

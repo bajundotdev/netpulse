@@ -114,3 +114,19 @@ describe("App dialog focus", () => {
     await waitFor(() => expect(screen.getByRole("searchbox", { name: "Search devices" })).toHaveFocus());
   });
 });
+
+describe("App smoke", () => {
+  it("shows the headline and device rows, and persists the chosen view", async () => {
+    localStorage.setItem("netpulse.view", "list");
+    render(<App />);
+    expect(screen.getByText("All 1 device up")).toBeInTheDocument();
+    expect(screen.getAllByText("dc01").length).toBeGreaterThan(0);
+
+    await userEvent.click(screen.getByRole("radio", { name: "Card view" }));
+    expect(localStorage.getItem("netpulse.view")).toBe("cards");
+    expect(screen.getByRole("button", { name: /dc01/ })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("radio", { name: "List view" }));
+    expect(localStorage.getItem("netpulse.view")).toBe("list");
+  });
+});
