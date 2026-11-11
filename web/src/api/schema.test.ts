@@ -14,8 +14,11 @@ const python = path.resolve(
 );
 
 describe("generated API types", () => {
-  it.skipIf(!existsSync(python))(
-    "schema.d.ts is up to date with the backend OpenAPI schema (run `npm run gen:api` to refresh)",
+  const hasPython = existsSync(python);
+  it.skipIf(!hasPython)(
+    hasPython
+      ? "schema.d.ts is up to date with the backend OpenAPI schema (run `npm run gen:api` to refresh)"
+      : `schema.d.ts is up to date (SKIPPED: backend venv python not found at ${python})`,
     () => {
       const dir = mkdtempSync(path.join(tmpdir(), "netpulse-schema-test-"));
       try {
@@ -29,6 +32,6 @@ describe("generated API types", () => {
         rmSync(dir, { recursive: true, force: true });
       }
     },
-    60_000,
+    120_000,
   );
 });

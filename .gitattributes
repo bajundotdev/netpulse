@@ -1,1 +1,2 @@
 *.bat text eol=crlf
+web/src/api/schema.d.ts text eol=lf
