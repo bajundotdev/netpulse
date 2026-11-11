@@ -1,0 +1,9 @@
+.np-status-panel {
+  background: linear-gradient(135deg, var(--bs-primary-bg-subtle), var(--bs-success-bg-subtle));
+  border: 1px solid var(--bs-border-color);
+}
+
+.np-strip {
+  display: grid;
+  gap: 2px;
+}

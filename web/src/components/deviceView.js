@@ -83,6 +83,7 @@ export function problemLine(device) {
   }
   if (device.status === "DEGRADED") {
     const failing = results.filter((x) => x.check_id != null && !x.ok);
+    if (failing.length === 0) return "DEGRADED";
     return `DEGRADED: ${failing.map((x) => `${x.label} ${x.reason ?? "failed"}`).join(", ")}`;
   }
   return null;
@@ -99,6 +100,7 @@ export function headline(devices) {
   if (down > 0) return { text: `${down} ${plural(down)} down`, variant: "danger" };
   if (degraded > 0) return { text: `${degraded} ${plural(degraded)} degraded`, variant: "warning" };
   const active = devices.filter((d) => d.status !== "PAUSED").length;
+  if (active === 0) return { text: "All devices paused", variant: "secondary" };
   if (up > 0 && up === active) return { text: `All ${up} ${plural(up)} up`, variant: "success" };
   return { text: `${up} of ${active} ${plural(active)} up`, variant: "secondary" };
 }

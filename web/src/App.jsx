@@ -5,11 +5,13 @@ import DeviceToolbar from "./components/DeviceToolbar.jsx";
 import DeviceForm from "./components/DeviceForm.jsx";
 import DeviceGrid from "./components/DeviceGrid.jsx";
 import EventLog from "./components/EventLog.jsx";
+import StatusPanel from "./components/StatusPanel.jsx";
 import SummaryStrip from "./components/SummaryStrip.jsx";
 import TopBar from "./components/TopBar.jsx";
 import { SORT_OPTIONS, filterDevices, sortDevices } from "./components/deviceView.js";
 import { readPref, writePref } from "./state/prefs.js";
 import { useMonitor } from "./state/MonitorContext.jsx";
+import { useHistory } from "./state/useHistory.js";
 
 export default function App() {
   const { state, reload } = useMonitor();
@@ -24,6 +26,8 @@ export default function App() {
   const [sort, setSort] = useState(() =>
     readPref("netpulse.sort", "problems", SORT_OPTIONS.map((o) => o.key)),
   );
+  const [range, setRange] = useState(() => readPref("netpulse.range", "24h", ["1h", "24h", "7d"]));
+  const history = useHistory(range, state.order.join(","));
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
@@ -32,6 +36,10 @@ export default function App() {
   const changeView = (v) => {
     setView(v);
     writePref("netpulse.view", v);
+  };
+  const changeRange = (r) => {
+    setRange(r);
+    writePref("netpulse.range", r);
   };
   const changeSort = (s) => {
     setSort(s);
@@ -64,6 +72,15 @@ export default function App() {
           <Alert variant="warning">
             Lost connection to the NetPulse server — statuses below are stale
           </Alert>
+        )}
+        {devices.length > 0 && (
+          <StatusPanel
+            devices={devices}
+            history={history.data}
+            range={range}
+            onRange={changeRange}
+            error={history.error}
+          />
         )}
         <SummaryStrip devices={devices} />
         <Row className="g-3">

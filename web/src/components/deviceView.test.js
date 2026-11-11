@@ -124,3 +124,17 @@ describe("headline", () => {
     expect(headline(s("UP", "UNKNOWN"))).toEqual({ text: "1 of 2 devices up", variant: "secondary" });
   });
 });
+
+describe("task 6 rulings", () => {
+  test("headline reports all paused", () => {
+    const s = (...st) => st.map((status) => dev({ status }));
+    expect(headline(s("PAUSED", "PAUSED"))).toEqual({ text: "All devices paused", variant: "secondary" });
+  });
+  test("problemLine for DEGRADED with no failing check is plain", () => {
+    expect(problemLine(dev({ status: "DEGRADED", results: [] }))).toBe("DEGRADED");
+    expect(
+      problemLine(dev({ status: "DEGRADED", results: [{ check_id: null, ok: false, label: "ping" }] })),
+    ).toBe("DEGRADED");
+  });
+});
+

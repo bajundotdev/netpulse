@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import 'bootstrap/dist/css/bootstrap.min.css'
+import './app.css'
 import App from './App.jsx'
 import { createAlerter } from './alerts.js'
 import { MonitorProvider } from './state/MonitorContext.jsx'
