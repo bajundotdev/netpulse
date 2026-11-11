@@ -6,7 +6,6 @@ import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { KIND_LABELS, formatResultValue, statusVariant } from "@/features/format";
-import { useReturnFocus } from "@/lib/useReturnFocus";
 import { useMonitor } from "@/state/MonitorContext";
 import type { LiveDevice, ResultOut } from "@/types";
 
@@ -58,7 +57,6 @@ export default function DeviceDetail({ device, onClose, onEdit }: Props) {
   const { dispatch, reload } = useMonitor();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const returnFocus = useReturnFocus();
   const [tested, setTested] = useState<ResultOut[] | null>(null);
 
   const run = async (fn: () => Promise<void>) => {
@@ -106,7 +104,7 @@ export default function DeviceDetail({ device, onClose, onEdit }: Props) {
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl" aria-describedby={undefined} onCloseAutoFocus={returnFocus}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl" aria-describedby={undefined} onCloseAutoFocus={(e) => e.preventDefault()}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-lg">
             {device.name}

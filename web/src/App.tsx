@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import DeviceDetail from "./components/DeviceDetail";
 import DeviceToolbar from "./components/DeviceToolbar.jsx";
@@ -57,6 +57,39 @@ export default function App() {
   const devices = useMemo(() => state.order.map((id) => state.devices[id]), [state.order, state.devices]);
   const visible = useMemo(() => sortDevices(filterDevices(devices, query), sort), [devices, query, sort]);
   const detail = detailId !== null ? state.devices[detailId] : null;
+  // Dialogs chain (Detail -> Edit form) and Radix only restores focus to a DialogTrigger, so the
+  // opener of the first dialog is remembered here and focused once the last one has closed.
+  const dialogOpen = Boolean(form) || Boolean(detail);
+  const opener = useRef<HTMLElement | null>(null);
+  const wasOpen = useRef(false);
+  const rememberOpener = () => {
+    if (!dialogOpen) opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  };
+  const openDetail = (id: number) => {
+    rememberOpener();
+    setDetailId(id);
+  };
+  const openAdd = () => {
+    rememberOpener();
+    setForm({});
+  };
+  useEffect(() => {
+    if (dialogOpen) {
+      wasOpen.current = true;
+      return;
+    }
+    if (!wasOpen.current) return;
+    wasOpen.current = false;
+    // After Radix has finished unmounting; a removed opener (deleted device) falls back to search.
+    const t = setTimeout(() => {
+      const target = opener.current?.isConnected
+        ? opener.current
+        : document.querySelector<HTMLElement>('input[aria-label="Search devices"]');
+      target?.focus();
+    }, 0);
+    return () => clearTimeout(t);
+  }, [dialogOpen]);
+
   const showError = state.loadError && state.loadError !== dismissedError;
 
   const onSaved = async () => {
@@ -66,7 +99,7 @@ export default function App() {
 
   return (
     <>
-      <TopBar connected={state.connected} onAdd={() => setForm({})} />
+      <TopBar connected={state.connected} onAdd={openAdd} />
       <main className="w-full px-4 pb-6">
         {showError && (
           <Alert variant="destructive" className="mb-3">
@@ -123,10 +156,10 @@ export default function App() {
                 history={historyForRange(history.data, range)}
                 range={range}
                 now={now}
-                onOpen={setDetailId}
+                onOpen={openDetail}
               />
             ) : (
-              <DeviceGrid devices={visible} now={now} onOpen={setDetailId} />
+              <DeviceGrid devices={visible} now={now} onOpen={openDetail} />
             )}
           </div>
           <div>

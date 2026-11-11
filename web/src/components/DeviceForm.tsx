@@ -7,7 +7,6 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useReturnFocus } from "@/lib/useReturnFocus";
 import { KIND_LABELS } from "@/features/format";
 import { applyPortChanges, portsOf, withPendingPort, type BaselineError } from "@/features/ports";
 import { applySnmpChanges, buildSnmpPayload, desiredSnmpChecks, snmpFormOf } from "@/features/snmp";
@@ -116,7 +115,6 @@ export default function DeviceForm({ device, onSaved, onClose }: Props) {
   const [baseline, setBaseline] = useState<CheckOut[]>(() => device?.checks ?? []);
   const [saving, setSaving] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
-  const returnFocus = useReturnFocus();
   const set = (key: TextKey) => (e: { target: { value: string } }) => setForm((f) => ({ ...f, [key]: e.target.value }));
   const err = (key: FieldKey) => errors.fields[key];
 
@@ -184,7 +182,8 @@ export default function DeviceForm({ device, onSaved, onClose }: Props) {
         aria-describedby={undefined}
         // Static backdrop: a click outside must not throw away the typed values.
         onInteractOutside={(e) => e.preventDefault()}
-        onCloseAutoFocus={returnFocus}
+        // App restores focus to whatever opened the first dialog of a chain.
+        onCloseAutoFocus={(e) => e.preventDefault()}
         onOpenAutoFocus={(e) => {
           e.preventDefault();
           nameRef.current?.focus();
