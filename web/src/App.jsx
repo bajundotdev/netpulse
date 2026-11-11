@@ -29,7 +29,8 @@ export default function App() {
     readPref("netpulse.sort", "problems", SORT_OPTIONS.map((o) => o.key)),
   );
   const [range, setRange] = useState(() => readPref("netpulse.range", "24h", ["1h", "24h", "7d"]));
-  const history = useHistory(range, state.order.join(","));
+  const statusKey = state.order.map((id) => `${id}:${state.devices[id]?.status}`).join(",");
+  const history = useHistory(range, state.order.join(","), statusKey);
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
@@ -77,6 +78,7 @@ export default function App() {
         )}
         {devices.length > 0 && (
           <StatusPanel
+            stale={state.stale}
             devices={devices}
             history={historyForRange(history.data, range)}
             range={range}

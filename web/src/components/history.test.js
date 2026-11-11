@@ -1,5 +1,15 @@
-import { describe, expect, test } from "vitest";
-import { axisLabels, historyFor, historyForRange, latestOnly, slotTitle, slotVariant, uptimeLabel } from "./history.js";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import {
+  axisLabels,
+  createDebouncer,
+  historyFor,
+  historyForRange,
+  latestOnly,
+  slotTitle,
+  slotVariant,
+  stripSummary,
+  uptimeLabel,
+} from "./history.js";
 
 const START = "2026-11-11T04:00:00+00:00";
 const hm = (ms) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -100,5 +110,44 @@ describe("uptimeLabel", () => {
   test("reads No history yet without a row or without uptime", () => {
     expect(uptimeLabel(null)).toBe("No history yet");
     expect(uptimeLabel({ buckets: [], uptime_pct: null })).toBe("No history yet");
+  });
+});
+
+describe("createDebouncer", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  test("collapses calls within the delay into one", () => {
+    const fn = vi.fn();
+    const d = createDebouncer(fn, 2000);
+    d();
+    vi.advanceTimersByTime(1000);
+    d();
+    vi.advanceTimersByTime(1999);
+    expect(fn).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  test("cancel prevents the call", () => {
+    const fn = vi.fn();
+    const d = createDebouncer(fn, 2000);
+    d();
+    d.cancel();
+    vi.advanceTimersByTime(5000);
+    expect(fn).not.toHaveBeenCalled();
+  });
+});
+
+describe("stripSummary", () => {
+  test("counts down and degraded slots", () => {
+    expect(stripSummary(["UP", "DOWN", "DOWN", "DEGRADED", null], "24 hours")).toBe(
+      "24 hours: 2 slots down, 1 degraded",
+    );
+    expect(stripSummary(["DOWN", "UP"], "hour")).toBe("hour: 1 slot down");
+    expect(stripSummary(["DEGRADED"], "hour")).toBe("hour: 1 degraded");
+  });
+  test("says all up when nothing is wrong", () => {
+    expect(stripSummary(["UP", null, "PAUSED"], "7 days")).toBe("7 days: all up");
   });
 });

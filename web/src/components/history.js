@@ -7,14 +7,18 @@ const LABELS = {
 
 const VARIANTS = { UP: "success", DEGRADED: "warning", DOWN: "danger" };
 
+export const RANGE_WORDS = { "1h": "hour", "24h": "24 hours", "7d": "7 days" };
+
 const AXIS = {
   "1h": ["60m ago", "45m", "30m", "15m", "Now"],
   "24h": ["24h ago", "18h", "12h", "6h", "Now"],
   "7d": ["7d ago", "5d", "4d", "2d", "Now"],
 };
 
-const time = (d) => d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-const day = (d) => d.toLocaleDateString([], { month: "short", day: "numeric" });
+const TIME_FMT = new Intl.DateTimeFormat([], { hour: "2-digit", minute: "2-digit" });
+const DAY_FMT = new Intl.DateTimeFormat([], { month: "short", day: "numeric" });
+const time = (d) => TIME_FMT.format(d);
+const day = (d) => DAY_FMT.format(d);
 
 export function slotTitle(startIso, bucketSeconds, index, status) {
   const from = new Date(Date.parse(startIso) + index * bucketSeconds * 1000);
@@ -55,4 +59,31 @@ export function uptimeLabel(entry) {
   const pct = entry?.uptime_pct;
   if (pct == null) return "No history yet";
   return `${Number(pct.toFixed(2))}% uptime`;
+}
+
+// Calls fn once, `ms` after the last call. cancel() drops a pending call.
+export function createDebouncer(fn, ms) {
+  let timer = null;
+  const run = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      fn();
+    }, ms);
+  };
+  run.cancel = () => {
+    clearTimeout(timer);
+    timer = null;
+  };
+  return run;
+}
+
+// Text alternative for a status strip: "24 hours: 2 slots down, 1 degraded".
+export function stripSummary(slots, rangeLabel) {
+  const down = slots.filter((s) => s === "DOWN").length;
+  const degraded = slots.filter((s) => s === "DEGRADED").length;
+  const parts = [];
+  if (down) parts.push(`${down} ${down === 1 ? "slot" : "slots"} down`);
+  if (degraded) parts.push(`${degraded} degraded`);
+  return `${rangeLabel}: ${parts.length ? parts.join(", ") : "all up"}`;
 }
