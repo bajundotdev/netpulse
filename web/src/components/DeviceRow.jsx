@@ -80,7 +80,7 @@ export default function DeviceRow({ device, history, range, now, expanded, onTog
     <ListGroup.Item className="p-0">
       <button
         type="button"
-        className="btn focus-ring w-100 text-start d-flex align-items-center gap-3 py-2 px-3 border-0"
+        className="btn np-row-toggle w-100 text-start d-flex align-items-center gap-3 py-2 px-3 border-0"
         aria-expanded={expanded}
         aria-controls={bodyId}
         onClick={() => onToggle(device.id)}
