@@ -4,6 +4,9 @@ import 'bootstrap/dist/css/bootstrap.min.css'
 import App from './App.jsx'
 import { createAlerter } from './alerts.js'
 import { MonitorProvider } from './state/MonitorContext.jsx'
+import { applyTheme, readTheme } from './state/theme.js'
+
+applyTheme(readTheme())
 
 const alerter = createAlerter()
 window.addEventListener('focus', alerter.focus)

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Badge, Button, Container, Navbar } from "react-bootstrap";
+import ThemeToggle from "./ThemeToggle.jsx";
 import { primeAudio, readSoundSetting, writeSoundSetting } from "../alerts.js";
 
 const notificationPermission = () =>
@@ -38,6 +39,7 @@ export default function TopBar({ connected, onAdd }) {
               Enable notifications
             </Button>
           )}
+          <ThemeToggle />
           <Button
             size="sm"
             variant={soundOn ? "light" : "outline-secondary"}
