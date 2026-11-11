@@ -1,5 +1,9 @@
-// Hand-written shapes of the backend API and the monitor state. Task 2 replaces the API-shaped
-// parts with types generated from the OpenAPI schema.
+// API shapes derive from the schema generated out of the backend (src/api/schema.d.ts). The schema
+// types enums as plain strings and check params as an open object, so the UI narrows those here:
+// each narrowed type is checked against its generated counterpart at the bottom of this section.
+import type { components } from "@/api/schema";
+
+type Schemas = components["schemas"];
 
 export type DeviceStatus = "UNKNOWN" | "UP" | "DEGRADED" | "DOWN" | "PAUSED";
 export type SlotStatus = "UP" | "DEGRADED" | "DOWN" | "PAUSED" | null;
@@ -16,42 +20,23 @@ export type Severity = "info" | "warning" | "critical";
 export type ThresholdOp = ">" | ">=" | "<" | "<=" | "==" | "!=";
 export type OidMode = "change" | "threshold";
 
-export interface SnmpIn {
-  version: SnmpVersion;
-  port: number;
-  community?: string;
-  user?: string;
-  auth_proto?: AuthProto;
-  auth_key?: string;
-  priv_proto?: PrivProto;
-  priv_key?: string;
-}
+export type SnmpIn = Schemas["SnmpIn"];
 
-export interface SnmpOut {
-  version: SnmpVersion;
-  port: number;
-  user: string | null;
+export type SnmpOut = Omit<Schemas["SnmpOut"], "auth_proto" | "priv_proto"> & {
   auth_proto: AuthProto;
   priv_proto: PrivProto;
-  has_community: boolean;
-  has_auth_key: boolean;
-  has_priv_key: boolean;
-}
+};
 
-export interface TcpParams {
-  port: number;
-}
+export type TcpParams = { port: number };
 export type SnmpUptimeParams = Record<string, never>;
-export interface SnmpIfParams {
-  if_indexes?: number[];
-}
-export interface SnmpOidParams {
+export type SnmpIfParams = { if_indexes?: number[] };
+export type SnmpOidParams = {
   oid: string;
   label: string;
   mode: OidMode;
   op?: ThresholdOp;
   value?: number;
-}
+};
 
 export type CheckSpec =
   | { type: "tcp"; params: TcpParams }
@@ -60,98 +45,52 @@ export type CheckSpec =
   | { type: "snmp_oid"; params: SnmpOidParams };
 
 export type CheckIn = CheckSpec & { enabled?: boolean };
-export type CheckOut = CheckSpec & {
-  id: number;
-  device_id: number;
-  enabled: boolean;
-  created_at: string;
-};
+export type CheckOut = CheckSpec & Omit<Schemas["CheckOut"], "type" | "params">;
 
 export type TcpCheckOut = Extract<CheckOut, { type: "tcp" }>;
 
-export interface DeviceIn {
-  name: string;
-  host: string;
-  kind?: DeviceKind;
-  enabled?: boolean;
-  interval_s?: number;
-  fail_threshold?: number;
-  timeout_ms?: number;
-  liveness?: Liveness;
-  liveness_port?: number | null;
-  snmp?: SnmpIn | null;
-  notes?: string | null;
-  checks?: CheckIn[];
-}
+export type DeviceIn = Omit<Schemas["DeviceIn"], "checks"> & { checks?: CheckIn[] };
 
-export type DeviceUpdate = Partial<Omit<DeviceIn, "checks">>;
+export type DeviceUpdate = Schemas["DeviceUpdate"];
 
-export interface DeviceOut {
-  id: number;
-  name: string;
-  host: string;
+export type DeviceOut = Omit<Schemas["DeviceOut"], "kind" | "liveness" | "snmp" | "checks"> & {
   kind: DeviceKind;
-  enabled: boolean;
-  interval_s: number;
-  fail_threshold: number;
-  timeout_ms: number;
   liveness: Liveness;
-  liveness_port: number | null;
   snmp: SnmpOut | null;
-  notes: string | null;
   checks: CheckOut[];
-  created_at: string;
-  updated_at: string;
-}
+};
 
-export interface ResultOut {
-  type: string;
-  label: string;
-  ok: boolean;
-  check_id?: number | null;
-  latency_ms?: number | null;
-  reason?: string | null;
-  value?: unknown;
-}
+export type ResultOut = Schemas["ResultOut"];
 
-export interface DeviceStatusOut {
-  device_id: number;
-  name: string;
-  status: DeviceStatus;
-  since: string | null;
-  consecutive_failures: number;
-  results: ResultOut[];
-  latency: (number | null)[];
-}
+export type DeviceStatusOut = Omit<Schemas["DeviceStatusOut"], "status"> & { status: DeviceStatus };
 
-export interface EventOut {
-  id: number;
-  ts: string;
-  device_id: number | null;
-  check_id: number | null;
-  severity: Severity;
-  kind: string;
-  message: string;
+export type EventOut = Omit<Schemas["EventOut"], "status" | "previous_status"> & {
   status: DeviceStatus | null;
   previous_status: DeviceStatus | null;
-  acknowledged: boolean;
-}
+};
 
-export interface DeviceHistoryOut {
-  device_id: number;
-  buckets: SlotStatus[];
-  uptime_pct: number | null;
-}
+export type DeviceHistoryOut = Omit<Schemas["DeviceHistoryOut"], "buckets"> & { buckets: SlotStatus[] };
 
-export interface HistoryOut {
+export type HistoryOut = Omit<Schemas["HistoryOut"], "range" | "overall" | "devices"> & {
   range: Range;
-  start: string;
-  end: string;
-  bucket_seconds: number;
-  problems_last_hour: number;
   overall: { problems: number[]; status: SlotStatus[] };
   devices: DeviceHistoryOut[];
-}
+};
+
+// Compile-time checks: every narrowed type must still be assignable to the generated schema type.
+type Narrows<Narrow, Generated> = [Narrow] extends [Generated] ? true : false;
+type Checks<T extends true[]> = T;
+export type ApiShapeChecks = Checks<[
+  Narrows<CheckIn, Schemas["CheckIn"]>,
+  Narrows<CheckOut, Schemas["CheckOut"]>,
+  Narrows<DeviceIn, Schemas["DeviceIn"]>,
+  Narrows<DeviceOut, Schemas["DeviceOut"]>,
+  Narrows<SnmpOut, Schemas["SnmpOut"]>,
+  Narrows<DeviceStatusOut, Schemas["DeviceStatusOut"]>,
+  Narrows<EventOut, Schemas["EventOut"]>,
+  Narrows<DeviceHistoryOut, Schemas["DeviceHistoryOut"]>,
+  Narrows<HistoryOut, Schemas["HistoryOut"]>,
+]>;
 
 // A device as the UI holds it: configuration plus its live status.
 export interface LiveDevice extends DeviceOut {
