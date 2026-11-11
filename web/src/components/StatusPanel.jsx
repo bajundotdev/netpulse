@@ -2,10 +2,9 @@ import { Button, ButtonGroup } from "react-bootstrap";
 import ProblemsChart from "./ProblemsChart.jsx";
 import StatusStrip from "./StatusStrip.jsx";
 import { headline } from "./deviceView.js";
-import { axisLabels } from "./history.js";
+import { RANGE_WORDS, axisLabels } from "./history.js";
 
 const RANGES = ["1h", "24h", "7d"];
-const RANGE_WORDS = { "1h": "hour", "24h": "24 hours", "7d": "7 days" };
 
 function Icon({ variant }) {
   const common = {
@@ -43,13 +42,13 @@ function Icon({ variant }) {
   );
 }
 
-export default function StatusPanel({ devices, history, range, onRange, error }) {
+export default function StatusPanel({ devices, history, range, onRange, error, stale }) {
   const { text, variant } = headline(devices);
   const n = history?.problems_last_hour;
   const sub = n == null ? null : `${n} ${n === 1 ? "problem" : "problems"} in the last hour`;
   const labels = axisLabels(range);
   return (
-    <div className="np-status-panel rounded-3 p-3 mb-3">
+    <div className={`np-status-panel rounded-3 p-3 mb-3${stale ? " opacity-50" : ""}`}>
       <div className="d-flex justify-content-between align-items-start gap-3 flex-wrap">
         <div className="d-flex align-items-center gap-3">
           <span className={`text-${variant}`}>
@@ -66,13 +65,26 @@ export default function StatusPanel({ devices, history, range, onRange, error })
             )}
           </div>
         </div>
-        <ButtonGroup size="sm" aria-label="History range">
-          {RANGES.map((r) => (
-            <Button key={r} variant="outline-secondary" active={r === range} onClick={() => onRange(r)}>
-              {r}
-            </Button>
-          ))}
-        </ButtonGroup>
+        <div className="d-flex align-items-center gap-2">
+          {history && error && (
+            <span className="small" style={{ color: "var(--bs-secondary-color)" }}>
+              History may be out of date
+            </span>
+          )}
+          <ButtonGroup size="sm" aria-label="History range">
+            {RANGES.map((r) => (
+              <Button
+                key={r}
+                variant="outline-secondary"
+                active={r === range}
+                aria-pressed={r === range}
+                onClick={() => onRange(r)}
+              >
+                {r}
+              </Button>
+            ))}
+          </ButtonGroup>
+        </div>
       </div>
       {history ? (
         <div className="mt-3">
@@ -92,6 +104,7 @@ export default function StatusPanel({ devices, history, range, onRange, error })
             slots={history.overall.status}
             startIso={history.start}
             bucketSeconds={history.bucket_seconds}
+            rangeLabel={RANGE_WORDS[range]}
             height={20}
           />
         </div>

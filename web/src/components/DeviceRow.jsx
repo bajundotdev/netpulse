@@ -4,7 +4,7 @@ import PortChips from "./PortChips.jsx";
 import StatusStrip from "./StatusStrip.jsx";
 import { problemLine } from "./deviceView.js";
 import { formatDuration, formatUptime, parseTs, statusVariant } from "./format.js";
-import { axisLabels, historyFor, uptimeLabel } from "./history.js";
+import { RANGE_WORDS, axisLabels, historyFor, uptimeLabel } from "./history.js";
 
 const STATUS_WORDS = {
   UP: "Up",
@@ -42,7 +42,7 @@ const LEGEND = [
   ["bg-success", "Up"],
   ["bg-warning", "Degraded"],
   ["bg-danger", "Down"],
-  ["bg-secondary-subtle", "Paused / no data"],
+  ["bg-body-secondary", "Paused / no data"],
 ];
 
 function Chevron({ expanded }) {
@@ -80,7 +80,7 @@ export default function DeviceRow({ device, history, range, now, expanded, onTog
     <ListGroup.Item className="p-0">
       <button
         type="button"
-        className="btn w-100 text-start d-flex align-items-center gap-3 py-2 px-3 border-0"
+        className="btn focus-ring w-100 text-start d-flex align-items-center gap-3 py-2 px-3 border-0"
         aria-expanded={expanded}
         aria-controls={bodyId}
         onClick={() => onToggle(device.id)}
@@ -112,7 +112,8 @@ export default function DeviceRow({ device, history, range, now, expanded, onTog
                   </span>
                 ))}
               </div>
-              <StatusStrip slots={slots} startIso={history.start} bucketSeconds={history.bucket_seconds} height={28} />
+              <StatusStrip slots={slots} startIso={history.start} bucketSeconds={history.bucket_seconds}
+                rangeLabel={`${device.name}, ${RANGE_WORDS[range]}`} height={28} />
               <div className="d-flex justify-content-between small text-body-secondary mt-1">
                 <span>{axisLabels(range)[0]}</span>
                 <span>{uptimeLabel(entry)}</span>

@@ -30,12 +30,12 @@ export default function TopBar({ connected, onAdd }) {
     <Navbar bg="dark" data-bs-theme="dark" className="mb-3">
       <Container fluid>
         <Navbar.Brand className="fw-semibold">NetPulse</Navbar.Brand>
-        <div className="d-flex align-items-center gap-3 ms-auto">
+        <div className="d-flex flex-wrap align-items-center gap-2 ms-auto">
           <Badge bg={connected ? "success" : "warning"} text={connected ? undefined : "dark"} aria-live="polite">
             {connected ? "Live" : "Reconnecting"}
           </Badge>
           {permission === "default" && (
-            <Button size="sm" variant="outline-light" onClick={enableNotifications}>
+            <Button size="sm" variant="outline-light" className="text-nowrap" onClick={enableNotifications}>
               Enable notifications
             </Button>
           )}
@@ -43,12 +43,13 @@ export default function TopBar({ connected, onAdd }) {
           <Button
             size="sm"
             variant={soundOn ? "light" : "outline-secondary"}
+            className="text-nowrap"
             aria-pressed={soundOn}
             onClick={toggleSound}
           >
             Sound {soundOn ? "on" : "off"}
           </Button>
-          <Button size="sm" variant="primary" onClick={onAdd}>
+          <Button size="sm" variant="primary" className="text-nowrap" onClick={onAdd}>
             Add device
           </Button>
         </div>

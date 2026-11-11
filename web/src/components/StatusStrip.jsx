@@ -1,17 +1,20 @@
-import { slotTitle, slotVariant } from "./history.js";
+import { memo } from "react";
+import { slotTitle, slotVariant, stripSummary } from "./history.js";
 
 const BG = {
   success: "bg-success",
   warning: "bg-warning",
   danger: "bg-danger",
-  secondary: "bg-secondary-subtle",
+  secondary: "bg-body-secondary",
 };
 
-export default function StatusStrip({ slots, startIso, bucketSeconds, height = 24 }) {
+function StatusStrip({ slots, startIso, bucketSeconds, rangeLabel, height = 24 }) {
   return (
     <div
       className="np-strip"
       style={{ gridTemplateColumns: `repeat(${slots.length}, 1fr)` }}
+      role="img"
+      aria-label={stripSummary(slots, rangeLabel)}
     >
       {slots.map((status, i) => (
         <div
@@ -24,3 +27,5 @@ export default function StatusStrip({ slots, startIso, bucketSeconds, height = 2
     </div>
   );
 }
+
+export default memo(StatusStrip);

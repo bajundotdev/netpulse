@@ -1,7 +1,9 @@
+import { memo } from "react";
+
 const W = 600;
 const H = 120;
 
-export default function ProblemsChart({ values, label }) {
+function ProblemsChart({ values, label }) {
   const max = Math.max(1, ...values);
   const n = values.length;
   const x = (i) => (n > 1 ? (i / (n - 1)) * W : 0);
@@ -29,3 +31,5 @@ export default function ProblemsChart({ values, label }) {
     </svg>
   );
 }
+
+export default memo(ProblemsChart);
