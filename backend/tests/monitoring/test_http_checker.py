@@ -281,3 +281,85 @@ async def test_pool_shares_clients_and_closes():
     assert pool.get(False, True) is not a
     await pool.aclose()
     assert a.is_closed
+
+
+# --- secret leak regressions -------------------------------------------------
+
+import asyncio  # noqa: E402
+
+from app.monitoring.checkers import http as http_mod  # noqa: E402
+from app.monitoring.checkers.http import scrub  # noqa: E402
+
+
+@pytest.fixture
+async def loopback(monkeypatch):
+    for var in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("NO_PROXY", "127.0.0.1")
+    hits: list[bytes] = []
+
+    async def handle(reader, writer):
+        hits.append(await reader.readuntil(b"\r\n\r\n"))
+        writer.write(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+        await writer.drain()
+        writer.close()
+
+    server = await asyncio.start_server(handle, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+    pool = HttpClientPool()
+    yield f"http://127.0.0.1:{port}/", pool, hits
+    await pool.aclose()
+    server.close()
+    await server.wait_closed()
+
+
+@pytest.mark.parametrize("secret", ["s3cr3t-token\n", "s3cr3t\x00token", "s3cr3t-tökén", "a\rb"])
+async def test_invalid_secret_never_requested_nor_leaked(loopback, secret):
+    url, pool, hits = loopback
+    checker = HttpChecker({"url": url, "auth": {"type": "bearer"}}, secret, pool)
+    r = await checker.check("h", 2000)
+    assert not r.ok and r.reason == "auth: invalid secret"
+    assert hits == []
+    assert "s3cr3t" not in repr(r)
+
+
+async def test_protocol_error_reason_has_no_secret(loopback, monkeypatch):
+    url, pool, hits = loopback
+    # Bypass validation to prove the second layer on a real h11 failure.
+    monkeypatch.setattr(http_mod, "_header_safe", lambda v: True)
+    secret = "s3cr3t-token\n"
+    checker = HttpChecker({"url": url, "auth": {"type": "bearer"}}, secret, pool)
+    r = await checker.check("h", 2000)
+    assert not r.ok and r.reason == "error: LocalProtocolError"
+    assert "s3cr3t" not in repr(r)
+
+
+async def test_invalid_username_and_header_name(make):
+    secret = "pw"
+    r = await make(respond(), {"auth": {"type": "basic", "username": "bo\nb"}}, secret).check("h", 1000)
+    assert r.reason == "auth: invalid secret"
+    r = await make(respond(), {"auth": {"type": "header", "header_name": "X\nA"}}, secret).check("h", 1000)
+    assert r.reason == "auth: invalid secret"
+    ok = await make(respond(), {"auth": {"type": "basic", "username": "bob"}}, "pä\nss").check("h", 1000)
+    assert ok.ok  # basic passwords are base64-encoded, any characters are fine
+
+
+async def test_opaque_exception_text_not_used(make):
+    def handler(request):
+        raise httpx2.LocalProtocolError("Illegal header value b'Bearer hunter2'")
+
+    r = await make(handler, {"auth": {"type": "bearer"}}, "hunter2").check("h", 1000)
+    assert r.reason == "error: LocalProtocolError"
+
+
+async def test_other_exception_text_scrubbed(make):
+    def handler(request):
+        raise httpx2.ReadError("boom aHVudGVyMg== and hunter2")
+
+    r = await make(handler, {"auth": {"type": "bearer"}}, "hunter2").check("h", 1000)
+    assert r.reason == "error: boom *** and ***"
+
+
+def test_scrub():
+    assert scrub("x hunter2 y aHVudGVyMg==", "hunter2") == "x *** y ***"
+    assert scrub("untouched", None) == "untouched"

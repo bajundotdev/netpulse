@@ -119,7 +119,32 @@ def _chain(exc: BaseException):
         exc = exc.__cause__ or exc.__context__
 
 
-def _error_reason(exc: Exception) -> str:
+class InvalidSecret(ValueError):
+    """The auth secret (or header name/username) cannot be sent safely; carries no secret text."""
+
+
+AUTH_INVALID_REASON = "auth: invalid secret"
+
+
+def _header_safe(value: str) -> bool:
+    """Printable ASCII only (no CR, LF, NUL or other control characters)."""
+    return bool(value) and all(0x20 <= ord(ch) <= 0x7E for ch in value)
+
+
+def scrub(text: str, secret: str | None) -> str:
+    """Last line of defence: remove the secret and its basic-auth forms from a message."""
+    if not secret:
+        return text
+    forms = {secret, base64.b64encode(secret.encode("utf-8", "replace")).decode()}
+    for form in sorted(forms, key=len, reverse=True):
+        text = text.replace(form, "***")
+    return text
+
+
+_OPAQUE_ERRORS = (httpx2.ProtocolError, UnicodeError, ValueError, TypeError)
+
+
+def _error_reason(exc: Exception, secret: str | None = None) -> str:
     if isinstance(exc, httpx2.TimeoutException | TimeoutError):
         return "timeout"
     if isinstance(exc, httpx2.TooManyRedirects):
@@ -132,7 +157,10 @@ def _error_reason(exc: Exception) -> str:
             return "dns"
     if isinstance(exc, httpx2.ConnectError):
         return "refused"
-    return f"error: {exc}"
+    if isinstance(exc, _OPAQUE_ERRORS):
+        # Their text can embed the request headers (and so the auth secret).
+        return f"error: {type(exc).__name__}"
+    return scrub(f"error: {exc}", secret)
 
 
 async def _read_capped(response: httpx2.Response) -> bytes:
@@ -175,10 +203,18 @@ class HttpChecker:
         auth = self._p.get("auth")
         if auth and self._secret:
             kind = auth.get("type")
+            username = str(auth.get("username") or "")
+            header_name = str(auth.get("header_name") or "")
+            if kind in ("bearer", "header") and not _header_safe(self._secret):
+                raise InvalidSecret
+            if kind == "basic" and username and not _header_safe(username):
+                raise InvalidSecret
+            if kind == "header" and header_name and not _header_safe(header_name):
+                raise InvalidSecret
             if kind == "bearer":
                 headers["Authorization"] = f"Bearer {self._secret}"
             elif kind == "basic":
-                raw = f"{auth.get('username') or ''}:{self._secret}".encode()
+                raw = f"{username}:{self._secret}".encode()
                 headers["Authorization"] = "Basic " + base64.b64encode(raw).decode()
             elif kind == "header" and auth.get("header_name"):
                 headers[str(auth["header_name"])] = self._secret
@@ -209,13 +245,17 @@ class HttpChecker:
         )
         need_body = bool(p.get("keyword") or p.get("json"))
         body = p.get("body")
+        try:
+            headers = self._headers()
+        except InvalidSecret:
+            return CheckResult(CheckType.HTTP, label, False, reason=AUTH_INVALID_REASON)
         started = self._clock()
         try:
             async with asyncio.timeout(timeout_ms / 1000):
                 async with client.stream(
                     self._method,
                     self._url,
-                    headers=self._headers(),
+                    headers=headers,
                     content=body.encode() if isinstance(body, str) else None,
                     timeout=timeout_ms / 1000,
                 ) as response:
@@ -225,7 +265,7 @@ class HttpChecker:
         except asyncio.CancelledError:
             raise
         except Exception as e:
-            return CheckResult(CheckType.HTTP, label, False, reason=_error_reason(e))
+            return CheckResult(CheckType.HTTP, label, False, reason=_error_reason(e, self._secret))
 
         cert_expires, cert_days = await self._cert(timeout_ms)
         value = {
