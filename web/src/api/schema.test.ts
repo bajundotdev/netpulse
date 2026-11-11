@@ -23,9 +23,20 @@ describe("generated API types", () => {
       const dir = mkdtempSync(path.join(tmpdir(), "netpulse-schema-test-"));
       try {
         const out = path.join(dir, "schema.d.ts");
-        execFileSync(process.execPath, [path.join(webDir, "scripts", "export-openapi.mjs"), out], {
-          cwd: webDir,
-        });
+        try {
+          execFileSync(process.execPath, [path.join(webDir, "scripts", "export-openapi.mjs"), out], {
+            cwd: webDir,
+            timeout: 110_000,
+            stdio: ["ignore", "pipe", "pipe"],
+          });
+        } catch (e) {
+          const stderr = String((e as { stderr?: unknown }).stderr ?? "").trim();
+          const firstLine = stderr.split("\n").find((l) => l.trim()) ?? (e as Error).message;
+          throw new Error(
+            "Could not regenerate schema.d.ts (npx needs network on first run to fetch typescript@5.9.3 " +
+              `+ openapi-typescript@7.13.0): ${firstLine}. Run \`npm run gen:api\` online.`,
+          );
+        }
         const committed = readFileSync(path.join(webDir, "src", "api", "schema.d.ts"), "utf8");
         expect(readFileSync(out, "utf8") === committed).toBe(true);
       } finally {
