@@ -49,3 +49,10 @@ export function latestOnly() {
     });
   };
 }
+
+// Footer text for a device's uptime over the range ("99.5% uptime"), or a placeholder.
+export function uptimeLabel(entry) {
+  const pct = entry?.uptime_pct;
+  if (pct == null) return "No history yet";
+  return `${Number(pct.toFixed(2))}% uptime`;
+}

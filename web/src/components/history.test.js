@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { axisLabels, historyFor, historyForRange, latestOnly, slotTitle, slotVariant } from "./history.js";
+import { axisLabels, historyFor, historyForRange, latestOnly, slotTitle, slotVariant, uptimeLabel } from "./history.js";
 
 const START = "2026-11-11T04:00:00+00:00";
 const hm = (ms) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -87,5 +87,18 @@ describe("latestOnly rejections", () => {
     guard(Promise.reject(new Error("new"))).catch((e) => seen.push(e.message));
     await new Promise((r) => setTimeout(r, 0));
     expect(seen).toEqual(["new"]);
+  });
+});
+
+describe("uptimeLabel", () => {
+  test("formats uptime with up to two decimals", () => {
+    expect(uptimeLabel({ buckets: [], uptime_pct: 99.5 })).toBe("99.5% uptime");
+    expect(uptimeLabel({ buckets: [], uptime_pct: 100 })).toBe("100% uptime");
+    expect(uptimeLabel({ buckets: [], uptime_pct: 99.456 })).toBe("99.46% uptime");
+    expect(uptimeLabel({ buckets: [], uptime_pct: 0 })).toBe("0% uptime");
+  });
+  test("reads No history yet without a row or without uptime", () => {
+    expect(uptimeLabel(null)).toBe("No history yet");
+    expect(uptimeLabel({ buckets: [], uptime_pct: null })).toBe("No history yet");
   });
 });

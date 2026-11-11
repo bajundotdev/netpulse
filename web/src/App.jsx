@@ -4,6 +4,7 @@ import DeviceDetail from "./components/DeviceDetail.jsx";
 import DeviceToolbar from "./components/DeviceToolbar.jsx";
 import DeviceForm from "./components/DeviceForm.jsx";
 import DeviceGrid from "./components/DeviceGrid.jsx";
+import DeviceList from "./components/DeviceList.jsx";
 import EventLog from "./components/EventLog.jsx";
 import StatusPanel from "./components/StatusPanel.jsx";
 import SummaryStrip from "./components/SummaryStrip.jsx";
@@ -96,9 +97,16 @@ export default function App() {
               view={view}
               onView={changeView}
             />
-            {/* The list view arrives with DeviceList; until then both views render the card grid. */}
             {devices.length > 0 && visible.length === 0 ? (
               <p className="text-body-secondary">No devices match “{query.trim()}”</p>
+            ) : view === "list" ? (
+              <DeviceList
+                devices={visible}
+                history={historyForRange(history.data, range)}
+                range={range}
+                now={now}
+                onOpen={setDetailId}
+              />
             ) : (
               <DeviceGrid devices={visible} now={now} onOpen={setDetailId} />
             )}
