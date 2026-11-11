@@ -128,7 +128,7 @@ CPU budget check (no network used): `cd backend && .venv/bin/python scripts/perf
 
 The top of the page is a status panel:
 
-- a **headline** with the overall state and how many devices are up;
+- a **headline** with the overall state and how many devices are down or degraded (or that all are up);
 - **problems in the last hour**, as a count;
 - a **timeline chart** of problems over time and a **status strip** with one slot per
   time bucket, coloured by the worst status in it;
