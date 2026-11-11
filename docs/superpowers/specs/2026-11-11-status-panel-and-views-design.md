@@ -147,9 +147,20 @@ flowchart TD
   UP green, DEGRADED amber, DOWN red, PAUSED and no data grey; each block has a `title`
   with its time range and status for hover.
 - Range buttons 1h / 24h / 7d (ButtonGroup); choice remembered in localStorage.
-- Styling: dark theme → deep blue-to-green gradient background, light text, green chart;
-  light theme → soft green/blue tint, dark text. Bootstrap default font throughout; the
-  headline is larger and bold (`fs-2 fw-bold`), not a different typeface.
+- Styling uses only Bootstrap's default theme colours (its CSS variables), so it follows
+  the light/dark toggle with no custom hex values:
+  - Panel background: `linear-gradient(135deg, var(--bs-primary-bg-subtle),
+    var(--bs-success-bg-subtle))` with a `var(--bs-border-color)` border. In dark mode
+    these are Bootstrap's deep navy and deep green (the reference's blue-to-green look);
+    in light mode they are pale blue and pale green tints.
+  - Text: headline `var(--bs-emphasis-color)`, sub-line and axis labels
+    `var(--bs-secondary-color)`.
+  - Chart: line `var(--bs-success)`, area fill `var(--bs-success)` at 25 % opacity.
+  - Strip, bars and pills: `--bs-success` (UP), `--bs-warning` (DEGRADED), `--bs-danger`
+    (DOWN), `--bs-secondary-bg` / `--bs-secondary` (paused, no data); headline icon uses
+    the matching `text-success` / `text-warning` / `text-danger` utility.
+- Bootstrap default font throughout; the headline is larger and bold (`fs-2 fw-bold`),
+  not a different typeface.
 
 ### 3.3 Toolbar and views
 - Toolbar: "N devices" (or "Showing X of N"), search input, sort select, list/card
