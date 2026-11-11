@@ -23,6 +23,14 @@ describe("filterDevices", () => {
     expect(filterDevices(ds, "389").map((d) => d.id)).toEqual([1]);
   });
 
+  test("ports match exactly, not by substring", () => {
+    const rdp = [dev({ id: 9, name: "rdp", host: "10.9.9.9", kind: "server", status: "UP",
+      checks: [{ id: 91, type: "tcp", params: { port: 3389 } }] })];
+    expect(filterDevices(rdp, "389")).toEqual([]);
+    expect(filterDevices(rdp, "3389").map((d) => d.id)).toEqual([9]);
+    expect(filterDevices(ds, "389").map((d) => d.id)).toEqual([1]);
+  });
+
   test("trims and treats regex characters literally", () => {
     expect(filterDevices(ds, "  10.0.0.1 ")).toHaveLength(1);
     expect(() => filterDevices(ds, "(")).not.toThrow();

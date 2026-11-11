@@ -49,8 +49,10 @@ export function filterDevices(devices, query) {
   if (!q) return devices;
   return devices.filter((d) => {
     const ports = (d.checks ?? []).filter((c) => c.type === "tcp").map((c) => String(c.params.port));
-    const fields = [d.name, d.host, KIND_LABELS[d.kind] ?? d.kind, d.status, d.notes, ...ports];
-    return fields.some((f) => f != null && String(f).toLowerCase().includes(q));
+    const fields = [d.name, d.host, KIND_LABELS[d.kind] ?? d.kind, d.status, d.notes];
+    return (
+      fields.some((f) => f != null && String(f).toLowerCase().includes(q)) || ports.includes(q)
+    );
   });
 }
 
