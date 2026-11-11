@@ -163,7 +163,7 @@ validation errors.
 
 ## 6. Frontend (`web/`)
 
-React 18 + Vite + React-Bootstrap (Bootstrap 5). Plain JavaScript (JSX), no Redux, no chart library.
+React 19 + Vite + React-Bootstrap (Bootstrap 5). Plain JavaScript (JSX), no Redux, no chart library.
 
 - **Top bar**: name, stream indicator (live/reconnecting), *Add device*, sound toggle,
   *Enable notifications*.
@@ -246,5 +246,5 @@ Each brick is usable before the next starts.
 
 Python 3.12+, FastAPI 0.162+ (built-in Server-Sent Events via `fastapi.sse`), Uvicorn,
 SQLAlchemy 2.1 (SQLite), Pydantic 2, pysnmp (lextudio 7.1, asyncio), cryptography (Fernet),
-pytest + pytest-asyncio + httpx2. Node 22 LTS (20.19+ to build), React 18, Vite 8,
+pytest + pytest-asyncio + httpx2. Node 22 LTS (20.19+ to build), React 19, Vite 8,
 React-Bootstrap + Bootstrap 5, Vitest 5. Checked against current library docs on 2026-11-11.
