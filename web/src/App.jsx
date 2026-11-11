@@ -11,6 +11,7 @@ import TopBar from "./components/TopBar.jsx";
 import { SORT_OPTIONS, filterDevices, sortDevices } from "./components/deviceView.js";
 import { readPref, writePref } from "./state/prefs.js";
 import { useMonitor } from "./state/MonitorContext.jsx";
+import { historyForRange } from "./components/history.js";
 import { useHistory } from "./state/useHistory.js";
 
 export default function App() {
@@ -76,7 +77,7 @@ export default function App() {
         {devices.length > 0 && (
           <StatusPanel
             devices={devices}
-            history={history.data}
+            history={historyForRange(history.data, range)}
             range={range}
             onRange={changeRange}
             error={history.error}

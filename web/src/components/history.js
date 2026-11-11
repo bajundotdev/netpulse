@@ -27,6 +27,9 @@ export const axisLabels = (range) => AXIS[range] ?? AXIS["24h"];
 
 export const slotVariant = (status) => VARIANTS[status] ?? "secondary";
 
+// A response is only usable for the range it was fetched for.
+export const historyForRange = (history, range) => (history?.range === range ? history : null);
+
 export function historyFor(history, deviceId) {
   const row = history?.devices?.find((d) => d.device_id === deviceId);
   return row ? { buckets: row.buckets, uptime_pct: row.uptime_pct } : null;

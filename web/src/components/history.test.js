@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { axisLabels, historyFor, latestOnly, slotTitle, slotVariant } from "./history.js";
+import { axisLabels, historyFor, historyForRange, latestOnly, slotTitle, slotVariant } from "./history.js";
 
 const START = "2026-11-11T04:00:00+00:00";
 const hm = (ms) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -67,5 +67,25 @@ describe("latestOnly", () => {
     a.resolve("A");
     await new Promise((r) => setTimeout(r, 0));
     expect(applied).toEqual(["B"]);
+  });
+});
+
+describe("historyForRange", () => {
+  const h = { range: "24h", devices: [] };
+  test("returns the history only for a matching range", () => {
+    expect(historyForRange(h, "24h")).toBe(h);
+    expect(historyForRange(h, "1h")).toBeNull();
+    expect(historyForRange(null, "24h")).toBeNull();
+  });
+});
+
+describe("latestOnly rejections", () => {
+  test("swallows a stale rejection and passes the latest one through", async () => {
+    const guard = latestOnly();
+    const seen = [];
+    guard(Promise.reject(new Error("old"))).catch((e) => seen.push(e.message));
+    guard(Promise.reject(new Error("new"))).catch((e) => seen.push(e.message));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(seen).toEqual(["new"]);
   });
 });

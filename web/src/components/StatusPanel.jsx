@@ -96,11 +96,9 @@ export default function StatusPanel({ devices, history, range, onRange, error })
           />
         </div>
       ) : (
-        error && (
-          <div className="small mt-3" style={{ color: "var(--bs-secondary-color)" }}>
-            History unavailable
-          </div>
-        )
+        <div className="small mt-3" style={{ color: "var(--bs-secondary-color)" }}>
+          {error ? "History unavailable" : "Loading history…"}
+        </div>
       )}
     </div>
   );
