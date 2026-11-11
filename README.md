@@ -23,10 +23,13 @@ procedure: set up in a minute, no agents, no templates.
   Defaults: poll every 5 s, `DOWN` after 2 consecutive failures, 1000 ms timeout.
 - **Event log:** persistent, with filter, acknowledge and clear. Events are written only
   when something changes, never on every poll.
+- **Status history:** every status change is kept for 30 days and drawn on the dashboard
+  (see below).
 
 Out of scope for v1: login, multiple users, running as a Windows service, email/chat
 alerts, SNMP traps, auto-discovery, topology maps, long-term metric history (only the
-last 60 latency samples per device, in memory).
+last 60 latency samples per device, in memory; status changes are kept for 30 days, see
+*Status history*).
 
 ## Architecture
 
@@ -121,6 +124,37 @@ CPU budget check (no network used): `cd backend && .venv/bin/python scripts/perf
 4. Allow browser notifications when asked. Use *Pause* to silence a device during planned
    work and *Test now* to run its checks immediately.
 
+## Dashboard
+
+The top of the page is a status panel:
+
+- a **headline** with the overall state and how many devices are down or degraded (or that all are up);
+- **problems in the last hour**, as a count;
+- a **timeline chart** of problems over time and a **status strip** with one slot per
+  time bucket, coloured by the worst status in it;
+- a range switch: **1h**, **24h** or **7d**.
+
+Below it, the devices come in two views, chosen with the toggle in the toolbar:
+
+- **List** (compact rows) and **Cards** (the original grid).
+- **Search** matches name, IP or host, kind, status, notes and port numbers, so typing
+  `389` finds every device with an LDAP check.
+- **Sort** by *Problems first*, *Name*, *Host* or *Latency*.
+- In the list, click a row to expand it: a history bar for the chosen range, the uptime
+  percentage, the port checks and a **Details** button that opens the full device view.
+
+The **theme toggle** in the top bar switches between light and dark.
+
+### Status history
+
+Status changes are stored for 30 days in their own table, separate from the event log:
+clearing the event log does not erase the history. Periods when NetPulse itself was
+stopped cleanly are shown as *no data*, not as up or down. If NetPulse crashes (power
+loss, killed process), it cannot record that it stopped, so the gap is drawn with the
+last known status of each device.
+
+API: `GET /api/history?range=1h|24h|7d` returns the history for all devices in that range.
+
 ## Windows notes
 
 ### Firewall and ping
@@ -150,7 +184,7 @@ network gear prefer **SNMP v3 with authPriv**; v2c sends the community in clear 
 
 `data/` (or `NETPULSE_DATA_DIR`) holds:
 
-- `netpulse.db`: devices, checks and the event log.
+- `netpulse.db`: devices, checks, the event log and 30 days of status history.
 - `secret.key`: encrypts the SNMP secrets in the database.
 
 Back them up **together**. If you lose `secret.key`, a new key is made on the next start

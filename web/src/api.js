@@ -50,3 +50,4 @@ export const getStatus = () => request("GET", "/status");
 export const listEvents = (params) => request("GET", "/events", { params });
 export const ackEvent = (id) => request("POST", `/events/${id}/ack`);
 export const clearEvents = () => request("DELETE", "/events");
+export const getHistory = (range) => request("GET", "/history", { params: { range } });

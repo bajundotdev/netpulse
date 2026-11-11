@@ -8,6 +8,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    field_serializer,
     StringConstraints,
     model_validator,
 )
@@ -256,3 +257,29 @@ class EventOut(BaseModel):
     status: str | None
     previous_status: str | None
     acknowledged: bool
+
+
+class DeviceHistoryOut(BaseModel):
+    device_id: int
+    buckets: list[str | None]
+    uptime_pct: float | None
+
+
+class OverallHistoryOut(BaseModel):
+    problems: list[int]
+    status: list[str | None]
+
+
+class HistoryOut(BaseModel):
+    range: str
+    start: datetime
+    end: datetime
+    bucket_seconds: int
+    problems_last_hour: int
+    overall: OverallHistoryOut
+    devices: list[DeviceHistoryOut]
+
+    @field_serializer("start", "end")
+    def _iso_offset(self, value: datetime) -> str:
+        # "+00:00" rather than pydantic's default "Z", as in the API contract.
+        return value.isoformat()

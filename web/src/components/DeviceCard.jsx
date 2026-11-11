@@ -1,13 +1,12 @@
 import { Badge, Card } from "react-bootstrap";
 import { KIND_LABELS, formatDuration, formatUptime, parseTs, statusVariant } from "./format.js";
 import Sparkline from "./Sparkline.jsx";
-import { resultFor } from "./ports.js";
+import PortChips from "./PortChips.jsx";
 
 export default function DeviceCard({ device, now, onOpen }) {
   const variant = statusVariant(device.status);
   const last = device.latency.length ? device.latency[device.latency.length - 1] : null;
   const since = parseTs(device.since);
-  const tcpChecks = (device.checks ?? []).filter((c) => c.type === "tcp");
   const uptime = (device.results ?? []).find((r) => r.type === "snmp_uptime" && r.ok && r.value != null);
   const showDuration = since && (device.status === "UP" || device.status === "DEGRADED" || device.status === "DOWN");
 
@@ -41,27 +40,7 @@ export default function DeviceCard({ device, now, onOpen }) {
           </div>
           <Sparkline values={device.latency} variant={variant} />
         </div>
-        {tcpChecks.length > 0 && (
-          <div className="d-flex flex-wrap gap-1 mt-2">
-            {tcpChecks.map((check) => {
-              const r = resultFor(check, device.results);
-              const port = check.params.port;
-              if (!r) {
-                return (
-                  <Badge key={check.id} bg="secondary" className="fw-normal">
-                    {port} …
-                  </Badge>
-                );
-              }
-              return (
-                <Badge key={check.id} bg={r.ok ? "success" : "danger"} className="fw-normal" title={r.ok ? undefined : (r.reason ?? undefined)}>
-                  {port} {r.ok ? "✓" : "✗"}
-                  {!r.ok && r.reason && <span className="visually-hidden"> {r.reason}</span>}
-                </Badge>
-              );
-            })}
-          </div>
-        )}
+        <PortChips device={device} />
         {uptime && <div className="small text-body-secondary mt-1">Uptime {formatUptime(uptime.value)}</div>}
         <div className="d-flex justify-content-between small text-body-secondary mt-1">
           <span>{KIND_LABELS[device.kind] ?? device.kind}</span>
