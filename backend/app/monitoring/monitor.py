@@ -2,7 +2,7 @@ import asyncio
 import logging
 import random
 from collections.abc import Awaitable, Callable
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import UTC, datetime
 
 from app.domain.detectors import ChangeTracker
@@ -53,8 +53,17 @@ class Monitor:
         self._tracker = tracker or ChangeTracker()
         self._tasks: dict[int, asyncio.Task] = {}
         self._generation: dict[int, int] = {}
+        # Each device's last real status from before a restart; consulted once, at its first change.
+        self._last_known: dict[int, str] = {}
 
-    async def start(self, devices: list[DeviceConfig]) -> None:
+    def set_last_known(self, statuses: dict[int, str]) -> None:
+        self._last_known = dict(statuses)
+
+    async def start(
+        self, devices: list[DeviceConfig], last_known: dict[int, str] | None = None
+    ) -> None:
+        if last_known is not None:
+            self.set_last_known(last_known)
         for device in devices:
             await self.upsert(device)
 
@@ -96,6 +105,7 @@ class Monitor:
             await self._publish_change(device.id, prev, state, event)
 
     async def remove(self, device_id: int) -> None:
+        self._last_known.pop(device_id, None)
         old = self._tasks.pop(device_id, None)
         if old is not None:
             old.cancel()
@@ -229,4 +239,11 @@ class Monitor:
         self, device_id: int, prev: DeviceState, state: DeviceState, event: DomainEvent
     ) -> None:
         await self._publish_status(device_id, state, prev.status.value)
+        if prev.status is DeviceStatus.UNKNOWN and device_id in self._last_known:
+            # First change after a restart: compare with the status from before the restart,
+            # so restarting NetPulse does not log every device again.
+            last = self._last_known.pop(device_id)
+            if last == state.status.value:
+                return
+            event = replace(event, previous_status=last)
         await self._bus.publish("domain_event", event)

@@ -116,7 +116,7 @@ def test_event_dict_shape_and_utc_iso(events):
     )
     assert ev["ts"].endswith("+00:00")
     assert datetime.fromisoformat(ev["ts"]).utcoffset().total_seconds() == 0
-    assert (ev["status"], ev["previous_status"], ev["acknowledged"]) == ("UP", "DOWN", False)
+    assert (ev["status"], ev["previous_status"], ev["acknowledged"]) == ("UP", "DOWN", True)
     assert events.list()[0]["ts"] == ev["ts"]
 
 
@@ -133,8 +133,16 @@ def test_events_newest_first_filters_and_paging(devices, events):
     assert [e["message"] for e in page] == ["m3", "m2"]
 
 
+def test_new_info_events_start_acknowledged_others_do_not(events):
+    info = events.add(DomainEvent(None, Severity.INFO, EventKind.STATUS_CHANGE, "sw1 UP"))
+    warn = events.add(DomainEvent(None, Severity.WARNING, EventKind.STATUS_CHANGE, "sw1 DEGRADED"))
+    crit = events.add(DomainEvent(None, Severity.CRITICAL, EventKind.STATUS_CHANGE, "sw1 DOWN"))
+    assert (info["acknowledged"], warn["acknowledged"], crit["acknowledged"]) == (True, False, False)
+
+
 def test_ack_and_clear(events):
-    e = events.add(DomainEvent(None, Severity.INFO, EventKind.CHECK_ERROR, "x"))
+    e = events.add(DomainEvent(None, Severity.WARNING, EventKind.CHECK_ERROR, "x"))
+    assert events.list()[0]["acknowledged"] is False
     events.ack(e["id"])
     assert events.list()[0]["acknowledged"] is True
     assert events.clear() == 1 and events.list() == []

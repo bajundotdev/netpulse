@@ -122,3 +122,15 @@ def test_clear_event_log_leaves_history(events, repo, session_factory):
     events.add(DomainEvent(1, Severity.INFO, EventKind.STATUS_CHANGE, "x"))
     events.clear()
     assert count(session_factory) == 1
+
+
+def test_last_known_statuses_ignore_stopped_and_unknown(repo, devices):
+    repo.add(1, "UP", at(-300))
+    repo.add(1, "STOPPED", at(-200))
+    repo.add(1, "UNKNOWN", at(-100))
+    repo.add(2, "DOWN", at(-300))
+    repo.add(2, "PAUSED", at(-250))
+    repo.add(2, "STOPPED", at(-200))
+    third = devices.create({"name": "C", "host": "10.0.0.3"})
+    repo.add(third.id, "UNKNOWN", at(-50))
+    assert repo.last_known_statuses() == {1: "UP", 2: "PAUSED"}

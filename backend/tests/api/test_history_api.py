@@ -126,3 +126,27 @@ def test_startup_survives_a_failing_prune(settings, monkeypatch):
     app = create_app(settings, factory=fake_factory(), start_monitor=False)
     with TestClient(app, base_url="http://localhost") as c:
         assert c.get("/api/health").status_code == 200
+
+
+def test_startup_hands_last_known_statuses_to_the_monitor(settings, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from app.main import create_app
+    from app.monitoring.monitor import Monitor
+    from tests.api.conftest import fake_factory
+
+    with TestClient(create_app(settings, factory=fake_factory(), start_monitor=False),
+                    base_url="http://localhost") as c:
+        dev = c.post("/api/devices", json={"name": "dc01", "host": "10.0.0.1"}).json()
+        c.app.state.container.history.add(dev["id"], "DOWN", datetime.now(UTC) - timedelta(minutes=5))
+    seen = {}
+
+    async def fake_start(self, devices, last_known=None):
+        seen["last_known"] = last_known
+
+    monkeypatch.setattr(Monitor, "start", fake_start)
+    with TestClient(create_app(settings, factory=fake_factory(), start_monitor=True),
+                    base_url="http://localhost"):
+        pass
+    # the clean shutdown of the first app wrote STOPPED after DOWN; DOWN is still the last real status
+    assert seen["last_known"] == {dev["id"]: "DOWN"}
