@@ -1,14 +1,21 @@
 import { describe, expect, test } from "vitest";
-import { compareHosts, filterDevices, headline, problemLine, sortDevices } from "./deviceView.js";
+import type { CheckOut, DeviceStatus, LiveDevice } from "@/types";
+import { compareHosts, filterDevices, headline, problemLine, sortDevices } from "./deviceView";
 
-const dev = (o) => ({
+const dev = (o: Partial<LiveDevice> = {}): LiveDevice => ({
   id: 1, name: "x", host: "10.0.0.1", kind: "server", status: "UP", notes: null,
-  checks: [], results: [], latency: [], ...o,
+  enabled: true, interval_s: 5, fail_threshold: 2, timeout_ms: 1000, liveness: "ping",
+  liveness_port: null, snmp: null, created_at: "", updated_at: "", since: null,
+  consecutive_failures: 0, checks: [], results: [], latency: [], ...o,
+});
+
+const tcp = (id: number, port: number): CheckOut => ({
+  id, device_id: 1, type: "tcp", params: { port }, enabled: true, created_at: "",
 });
 
 const ds = [
   dev({ id: 1, name: "dc01", host: "10.0.0.1", kind: "dc", status: "UP", notes: "Primary site",
-    checks: [{ id: 11, type: "tcp", params: { port: 389 } }], latency: [5, 7] }),
+    checks: [tcp(11, 389)], latency: [5, 7] }),
   dev({ id: 2, name: "Switch-A", host: "10.0.0.20", kind: "switch", status: "DOWN", latency: [null] }),
   dev({ id: 3, name: "printer", host: "10.0.0.3", kind: "printer", status: "PAUSED" }),
 ];
@@ -25,7 +32,7 @@ describe("filterDevices", () => {
 
   test("ports match exactly, not by substring", () => {
     const rdp = [dev({ id: 9, name: "rdp", host: "10.9.9.9", kind: "server", status: "UP",
-      checks: [{ id: 91, type: "tcp", params: { port: 3389 } }] })];
+      checks: [tcp(91, 3389)] })];
     expect(filterDevices(rdp, "389")).toEqual([]);
     expect(filterDevices(rdp, "3389").map((d) => d.id)).toEqual([9]);
     expect(filterDevices(ds, "389").map((d) => d.id)).toEqual([1]);
@@ -51,7 +58,7 @@ describe("sortDevices", () => {
       dev({ id: 4, name: "d", status: "DOWN" }),
       dev({ id: 5, name: "e", status: "UNKNOWN" }),
       dev({ id: 6, name: "A", status: "UP" }),
-      dev({ id: 7, name: "z", status: "STOPPED" }),
+      dev({ id: 7, name: "z", status: "STOPPED" as unknown as DeviceStatus }),
     ];
     expect(sortDevices(list, "problems").map((d) => d.id)).toEqual([4, 3, 5, 6, 1, 2, 7]);
   });
@@ -116,7 +123,7 @@ describe("problemLine", () => {
 });
 
 describe("headline", () => {
-  const s = (...statuses) => statuses.map((status) => dev({ status }));
+  const s = (...statuses: DeviceStatus[]) => statuses.map((status) => dev({ status }));
   test("wording and variants", () => {
     expect(headline([])).toEqual({ text: "No devices yet", variant: "secondary" });
     expect(headline(s("UP", "UP", "PAUSED"))).toEqual({ text: "All 2 devices up", variant: "success" });
@@ -135,13 +142,13 @@ describe("headline", () => {
 
 describe("task 6 rulings", () => {
   test("headline reports all paused", () => {
-    const s = (...st) => st.map((status) => dev({ status }));
+    const s = (...st: DeviceStatus[]) => st.map((status) => dev({ status }));
     expect(headline(s("PAUSED", "PAUSED"))).toEqual({ text: "All devices paused", variant: "secondary" });
   });
   test("problemLine for DEGRADED with no failing check is plain", () => {
     expect(problemLine(dev({ status: "DEGRADED", results: [] }))).toBe("DEGRADED");
     expect(
-      problemLine(dev({ status: "DEGRADED", results: [{ check_id: null, ok: false, label: "ping" }] })),
+      problemLine(dev({ status: "DEGRADED", results: [{ type: "ping", check_id: null, ok: false, label: "ping" }] })),
     ).toBe("DEGRADED");
   });
 });

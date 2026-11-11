@@ -9,11 +9,11 @@ import EventLog from "./components/EventLog.jsx";
 import StatusPanel from "./components/StatusPanel.jsx";
 import SummaryStrip from "./components/SummaryStrip.jsx";
 import TopBar from "./components/TopBar.jsx";
-import { SORT_OPTIONS, filterDevices, sortDevices } from "./components/deviceView.js";
-import { readPref, writePref } from "./state/prefs.js";
+import { SORT_OPTIONS, filterDevices, sortDevices } from "@/features/deviceView";
+import { readPref, writePref } from "./state/prefs";
 import { useMonitor } from "./state/MonitorContext.jsx";
-import { historyForRange } from "./components/history.js";
-import { useHistory } from "./state/useHistory.js";
+import { historyForRange } from "@/features/history";
+import { useHistory } from "./state/useHistory";
 
 export default function App() {
   const { state, reload } = useMonitor();
@@ -49,11 +49,8 @@ export default function App() {
     writePref("netpulse.sort", s);
   };
 
-  const devices = state.order.map((id) => state.devices[id]);
-  const visible = useMemo(
-    () => sortDevices(filterDevices(devices, query), sort),
-    [state.devices, state.order, query, sort],
-  );
+  const devices = useMemo(() => state.order.map((id) => state.devices[id]), [state.order, state.devices]);
+  const visible = useMemo(() => sortDevices(filterDevices(devices, query), sort), [devices, query, sort]);
   const detail = detailId !== null ? state.devices[detailId] : null;
   const showError = state.loadError && state.loadError !== dismissedError;
 

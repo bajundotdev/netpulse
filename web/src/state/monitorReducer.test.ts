@@ -1,22 +1,27 @@
 import { describe, expect, test } from "vitest";
-import { initialState, monitorReducer } from "./monitorReducer.js";
+import type { DeviceOut, DeviceStatusOut, EventOut, MonitorAction, ResultOut } from "@/types";
+import { initialState, monitorReducer } from "./monitorReducer";
 
-const cfg = (id, extra = {}) => ({
+const cfg = (id: number, extra: Partial<DeviceOut> = {}): DeviceOut => ({
   id, name: `d${id}`, host: `10.0.0.${id}`, kind: "other", enabled: true,
   interval_s: 5, fail_threshold: 2, timeout_ms: 1000, liveness: "ping",
-  liveness_port: null, snmp: null, notes: null, checks: [], ...extra,
+  liveness_port: null, snmp: null, notes: null, checks: [], created_at: "", updated_at: "", ...extra,
 });
-const st = (id, extra = {}) => ({
+const st = (id: number, extra: Partial<DeviceStatusOut> = {}): DeviceStatusOut => ({
   device_id: id, name: `d${id}`, status: "UP", since: "2026-01-01T00:00:00Z",
   consecutive_failures: 0, results: [], latency: [], ...extra,
 });
-const ev = (id) => ({ id, device_id: 1, severity: "info", kind: "status_change", message: `e${id}` });
-const snap = (devices, statuses, events = []) =>
+const ev = (id: number): EventOut => ({
+  id, ts: "", device_id: 1, check_id: null, severity: "info", kind: "status_change",
+  message: `e${id}`, status: null, previous_status: null, acknowledged: false,
+});
+const okResult: ResultOut = { type: "ping", label: "ping", ok: true };
+const snap = (devices: DeviceOut[], statuses: DeviceStatusOut[], events: EventOut[] = []) =>
   monitorReducer(initialState, { type: "SNAPSHOT", devices, statuses, events });
 
 describe("monitorReducer", () => {
   test("SNAPSHOT replaces devices and events", () => {
-    const a = { type: "SNAPSHOT", devices: [cfg(1)], statuses: [st(1)], events: [ev(1)] };
+    const a: MonitorAction = { type: "SNAPSHOT", devices: [cfg(1)], statuses: [st(1)], events: [ev(1)] };
     const s1 = monitorReducer(initialState, a);
     const s2 = monitorReducer(s1, { ...a, events: [ev(2), ev(1)] });
     expect(s2.events.map((e) => e.id)).toEqual([2, 1]);
@@ -42,11 +47,11 @@ describe("monitorReducer", () => {
   test("RESULT appends latency capped at 60", () => {
     let s = snap([cfg(1)], [st(1)]);
     for (let i = 1; i <= 61; i++) {
-      s = monitorReducer(s, { type: "RESULT", payload: { device_id: 1, results: [{ ok: true }], latency_ms: i } });
+      s = monitorReducer(s, { type: "RESULT", payload: { device_id: 1, results: [okResult], latency_ms: i } });
     }
     expect(s.devices[1].latency).toHaveLength(60);
     expect(s.devices[1].latency.at(-1)).toBe(61);
-    expect(s.devices[1].results).toEqual([{ ok: true }]);
+    expect(s.devices[1].results).toEqual([okResult]);
   });
 
   test("RESULT also patches status, since and failures when the payload carries them", () => {
@@ -91,14 +96,14 @@ describe("monitorReducer", () => {
   test("EVENT_ACKED and EVENTS_CLEARED", () => {
     const s0 = snap([cfg(1)], [st(1)], [ev(2), ev(1)]);
     const s1 = monitorReducer(s0, { type: "EVENT_ACKED", id: 1 });
-    expect(s1.events.find((e) => e.id === 1).acknowledged).toBe(true);
-    expect(s1.events.find((e) => e.id === 2).acknowledged).toBeFalsy();
+    expect(s1.events.find((e) => e.id === 1)?.acknowledged).toBe(true);
+    expect(s1.events.find((e) => e.id === 2)?.acknowledged).toBeFalsy();
     expect(monitorReducer(s1, { type: "EVENTS_CLEARED" }).events).toEqual([]);
   });
 
   test("STATUS and RESULT for unknown device are ignored", () => {
     const s = snap([cfg(1)], [st(1)]);
-    expect(monitorReducer(s, { type: "STATUS", payload: { device_id: 9, status: "DOWN" } })).toBe(s);
+    expect(monitorReducer(s, { type: "STATUS", payload: { device_id: 9, status: "DOWN", previous_status: "UP", since: null, consecutive_failures: 1 } })).toBe(s);
     expect(monitorReducer(s, { type: "RESULT", payload: { device_id: 9, results: [], latency_ms: 1 } })).toBe(s);
   });
 

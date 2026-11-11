@@ -1,22 +1,23 @@
-import { KIND_LABELS } from "./format.js";
+import type { DeviceStatus, LiveDevice, SortKey } from "@/types";
+import { KIND_LABELS, type Variant } from "./format";
 
-export const SORT_OPTIONS = [
+export const SORT_OPTIONS: readonly { key: SortKey; label: string }[] = [
   { key: "problems", label: "Problems first" },
   { key: "name", label: "Name" },
   { key: "host", label: "Host" },
   { key: "latency", label: "Latency" },
 ];
 
-const STATUS_ORDER = ["DOWN", "DEGRADED", "UNKNOWN", "UP", "PAUSED"];
+const STATUS_ORDER: readonly DeviceStatus[] = ["DOWN", "DEGRADED", "UNKNOWN", "UP", "PAUSED"];
 
-const byName = (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+const byName = (a: Pick<LiveDevice, "name">, b: Pick<LiveDevice, "name">) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
 
-function statusRank(status) {
+function statusRank(status: DeviceStatus): number {
   const i = STATUS_ORDER.indexOf(status);
   return i === -1 ? STATUS_ORDER.length : i;
 }
 
-function ipv4Parts(host) {
+function ipv4Parts(host: string): number[] | null {
   const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(String(host).trim());
   if (!m) return null;
   const parts = m.slice(1).map(Number);
@@ -24,7 +25,7 @@ function ipv4Parts(host) {
 }
 
 // IPv4 addresses numerically first, then hostnames alphabetically.
-export function compareHosts(a, b) {
+export function compareHosts(a: string, b: string): number {
   const pa = ipv4Parts(a);
   const pb = ipv4Parts(b);
   if (pa && pb) {
@@ -38,17 +39,17 @@ export function compareHosts(a, b) {
   return String(a).localeCompare(String(b), undefined, { sensitivity: "base" });
 }
 
-function latestLatency(device) {
+function latestLatency(device: Pick<LiveDevice, "latency">): number | null {
   const list = device.latency ?? [];
   const last = list.length ? list[list.length - 1] : null;
   return typeof last === "number" ? last : null;
 }
 
-export function filterDevices(devices, query) {
+export function filterDevices(devices: LiveDevice[], query: string | null | undefined): LiveDevice[] {
   const q = String(query ?? "").trim().toLowerCase();
   if (!q) return devices;
   return devices.filter((d) => {
-    const ports = (d.checks ?? []).filter((c) => c.type === "tcp").map((c) => String(c.params.port));
+    const ports = (d.checks ?? []).flatMap((c) => (c.type === "tcp" ? [String(c.params.port)] : []));
     const fields = [d.name, d.host, KIND_LABELS[d.kind] ?? d.kind, d.status, d.notes];
     return (
       fields.some((f) => f != null && String(f).toLowerCase().includes(q)) || ports.includes(q)
@@ -56,7 +57,7 @@ export function filterDevices(devices, query) {
   });
 }
 
-export function sortDevices(devices, key) {
+export function sortDevices(devices: LiveDevice[], key: SortKey): LiveDevice[] {
   const list = [...devices];
   switch (key) {
     case "name":
@@ -77,7 +78,7 @@ export function sortDevices(devices, key) {
   }
 }
 
-export function problemLine(device) {
+export function problemLine(device: Pick<LiveDevice, "status" | "results">): string | null {
   const results = device.results ?? [];
   if (device.status === "DOWN") {
     const r = results.find((x) => x.check_id == null && !x.ok);
@@ -91,11 +92,11 @@ export function problemLine(device) {
   return null;
 }
 
-const plural = (n) => (n === 1 ? "device" : "devices");
+const plural = (n: number) => (n === 1 ? "device" : "devices");
 
-export function headline(devices) {
+export function headline(devices: Pick<LiveDevice, "status">[]): { text: string; variant: Variant } {
   if (devices.length === 0) return { text: "No devices yet", variant: "secondary" };
-  const count = (s) => devices.filter((d) => d.status === s).length;
+  const count = (s: DeviceStatus) => devices.filter((d) => d.status === s).length;
   const down = count("DOWN");
   const degraded = count("DEGRADED");
   const up = count("UP");

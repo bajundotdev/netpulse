@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { Alert, Button, Col, Form, Modal, Row, Tab, Tabs } from "react-bootstrap";
-import { ApiError, addCheck, createDevice, deleteCheck, updateCheck, updateDevice } from "../api.js";
-import { KIND_LABELS } from "./format.js";
+import { ApiError, addCheck, createDevice, deleteCheck, updateCheck, updateDevice } from "@/api/client";
+import { KIND_LABELS } from "@/features/format";
 import PortsTab from "./PortsTab.jsx";
 import SnmpTab from "./SnmpTab.jsx";
-import { applyPortChanges, portsOf, withPendingPort } from "./ports.js";
-import { applySnmpChanges, buildSnmpPayload, desiredSnmpChecks, snmpFormOf } from "./snmp.js";
+import { applyPortChanges, portsOf, withPendingPort } from "@/features/ports";
+import { applySnmpChanges, buildSnmpPayload, desiredSnmpChecks, snmpFormOf } from "@/features/snmp";
 
 const DEFAULTS = {
   name: "",

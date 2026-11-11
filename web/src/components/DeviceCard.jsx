@@ -1,5 +1,5 @@
 import { Badge, Card } from "react-bootstrap";
-import { KIND_LABELS, formatDuration, formatUptime, parseTs, statusVariant } from "./format.js";
+import { KIND_LABELS, formatDuration, formatUptime, parseTs, statusVariant } from "@/features/format";
 import Sparkline from "./Sparkline.jsx";
 import PortChips from "./PortChips.jsx";
 

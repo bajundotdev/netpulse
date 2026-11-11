@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { readPref, writePref } from "./prefs.js";
+import { readPref, writePref } from "./prefs";
 
-const memory = (initial = {}) => {
-  const data = { ...initial };
+const memory = (initial: Record<string, string> = {}) => {
+  const data: Record<string, string> = { ...initial };
   return {
-    getItem: (k) => (k in data ? data[k] : null),
-    setItem: (k, v) => {
+    getItem: (k: string) => (k in data ? data[k] : null),
+    setItem: (k: string, v: unknown) => {
       data[k] = String(v);
     },
     data,

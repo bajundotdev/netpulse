@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { applyTheme, readTheme, writeTheme } from "./theme.js";
+import { applyTheme, readTheme, writeTheme } from "./theme";
 
-const storage = (value) => ({ getItem: () => value, setItem: () => {} });
-const media = (dark) => () => ({ matches: dark });
+const storage = (value: string | null) => ({ getItem: () => value, setItem: () => {} });
+const media = (dark: boolean) => () => ({ matches: dark });
 
 describe("readTheme", () => {
   it("uses the stored value", () => {
@@ -14,8 +14,8 @@ describe("readTheme", () => {
     expect(readTheme({ storage: storage(null), matchMedia: media(false) })).toBe("light");
   });
   it("queries prefers-color-scheme: dark", () => {
-    let query;
-    readTheme({ storage: storage(null), matchMedia: (q) => ((query = q), { matches: false }) });
+    let query: string | undefined;
+    readTheme({ storage: storage(null), matchMedia: (q: string) => ((query = q), { matches: false }) });
     expect(query).toBe("(prefers-color-scheme: dark)");
   });
   it("ignores invalid stored values", () => {
@@ -33,8 +33,8 @@ describe("readTheme", () => {
 
 describe("applyTheme / writeTheme", () => {
   it("sets data-bs-theme on the root", () => {
-    const attrs = {};
-    const root = { setAttribute: (k, v) => (attrs[k] = v) };
+    const attrs: Record<string, string> = {};
+    const root = { setAttribute: (k: string, v: string) => void (attrs[k] = v) };
     applyTheme("dark", root);
     expect(attrs["data-bs-theme"]).toBe("dark");
   });

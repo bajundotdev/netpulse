@@ -1,5 +1,5 @@
 import { Badge } from "react-bootstrap";
-import { resultFor } from "./ports.js";
+import { resultFor } from "@/features/ports";
 
 export default function PortChips({ device }) {
   const tcpChecks = (device.checks ?? []).filter((c) => c.type === "tcp");

@@ -1,8 +1,8 @@
 import { Button, ButtonGroup } from "react-bootstrap";
 import ProblemsChart from "./ProblemsChart.jsx";
 import StatusStrip from "./StatusStrip.jsx";
-import { headline } from "./deviceView.js";
-import { RANGE_WORDS, axisLabels } from "./history.js";
+import { headline } from "@/features/deviceView";
+import { RANGE_WORDS, axisLabels } from "@/features/history";
 
 const RANGES = ["1h", "24h", "7d"];
 

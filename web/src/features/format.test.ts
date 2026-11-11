@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatDuration, statusVariant } from "./format.js";
+import { formatDuration, statusVariant } from "./format";
 
 describe("formatDuration", () => {
   it("formats seconds, minutes and hours", () => {

@@ -2,9 +2,9 @@ import { Badge, Button, ListGroup } from "react-bootstrap";
 import KindIcon from "./KindIcon.jsx";
 import PortChips from "./PortChips.jsx";
 import StatusStrip from "./StatusStrip.jsx";
-import { problemLine } from "./deviceView.js";
-import { formatDuration, formatUptime, parseTs, statusVariant } from "./format.js";
-import { RANGE_WORDS, axisLabels, historyFor, uptimeLabel } from "./history.js";
+import { problemLine } from "@/features/deviceView";
+import { formatDuration, formatUptime, parseTs, statusVariant } from "@/features/format";
+import { RANGE_WORDS, axisLabels, historyFor, uptimeLabel } from "@/features/history";
 
 const STATUS_WORDS = {
   UP: "Up",

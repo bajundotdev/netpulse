@@ -1,5 +1,5 @@
 import { Badge, Button, CloseButton, Form, InputGroup } from "react-bootstrap";
-import { DC_PRESET_PORTS, mergePorts, withPendingPort } from "./ports.js";
+import { DC_PRESET_PORTS, mergePorts, withPendingPort } from "@/features/ports";
 
 // `text`/`error` live in DeviceForm so Save can pick up a port that was typed but not added.
 export default function PortsTab({ ports, onChange, text, onTextChange, error, onErrorChange }) {

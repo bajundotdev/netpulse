@@ -1,8 +1,8 @@
-import { createContext, useCallback, useContext, useMemo, useReducer, useRef } from "react";
-import { getStatus, listDevices, listEvents } from "../api.js";
-import { initialState, monitorReducer } from "./monitorReducer.js";
-import { singleFlight } from "./singleFlight.js";
-import { useMonitorStream } from "./useMonitorStream.js";
+import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef } from "react";
+import { getStatus, listDevices, listEvents } from "@/api/client";
+import { initialState, monitorReducer } from "./monitorReducer";
+import { singleFlight } from "./singleFlight";
+import { useMonitorStream } from "./useMonitorStream";
 
 const MonitorContext = createContext(null);
 
@@ -24,7 +24,9 @@ export function MonitorProvider({ children, onStatus, onEvent }) {
   );
 
   const devicesRef = useRef(state.devices);
-  devicesRef.current = state.devices;
+  useEffect(() => {
+    devicesRef.current = state.devices;
+  }, [state.devices]);
   const isKnown = useCallback((id) => id == null || id in devicesRef.current, []);
 
   useMonitorStream(dispatch, reload, onStatus, onEvent, isKnown);

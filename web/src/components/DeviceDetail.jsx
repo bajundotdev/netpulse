@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Alert, Badge, Button, Modal, Table } from "react-bootstrap";
-import { deleteDevice, testDevice, updateDevice } from "../api.js";
+import { deleteDevice, testDevice, updateDevice } from "@/api/client";
 import { useMonitor } from "../state/MonitorContext.jsx";
-import { KIND_LABELS, formatResultValue, statusVariant } from "./format.js";
+import { KIND_LABELS, formatResultValue, statusVariant } from "@/features/format";
 
 function ResultsTable({ results }) {
   if (!results || results.length === 0) return <p className="text-body-secondary small mb-0">No results yet.</p>;

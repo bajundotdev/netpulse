@@ -1,9 +1,20 @@
+import type { EventOut } from "@/types";
+
+// The fields of an event that decide whether and how it alerts.
+export type AlertEvent = Pick<EventOut, "severity" | "kind" | "message"> &
+  Partial<Pick<EventOut, "device_id" | "status" | "previous_status">>;
+
+export interface AlertText {
+  title: string;
+  body: string;
+}
+
 const BASE_TITLE = "NetPulse";
 const SOUND_KEY = "netpulse.sound";
 
 // `wasDown`: the device went DOWN earlier in this session, so reaching UP is a recovery even
 // through DEGRADED (a rebooting DC answers ping before its services are back).
-export function shouldAlert(event, wasDown = false) {
+export function shouldAlert(event: AlertEvent, wasDown = false): boolean {
   return (
     event.severity === "critical" ||
     (event.kind === "status_change" &&
@@ -12,14 +23,14 @@ export function shouldAlert(event, wasDown = false) {
   );
 }
 
-export function coalesceAlerts(events) {
+export function coalesceAlerts(events: AlertEvent[]): AlertText {
   if (events.length === 1) return { title: events[0].message, body: "" };
   const lines = events.slice(0, 5).map((e) => e.message);
   if (events.length > 5) lines.push(`…and ${events.length - 5} more`);
   return { title: `${events.length} alerts`, body: lines.join("\n") };
 }
 
-export function readSoundSetting() {
+export function readSoundSetting(): boolean {
   try {
     return localStorage.getItem(SOUND_KEY) !== "off";
   } catch {
@@ -27,7 +38,7 @@ export function readSoundSetting() {
   }
 }
 
-export function writeSoundSetting(on) {
+export function writeSoundSetting(on: boolean): void {
   try {
     localStorage.setItem(SOUND_KEY, on ? "on" : "off");
   } catch {
@@ -35,7 +46,7 @@ export function writeSoundSetting(on) {
   }
 }
 
-export function notifyBrowser({ title, body }) {
+export function notifyBrowser({ title, body }: AlertText): void {
   if (typeof window === "undefined" || !("Notification" in window)) return;
   if (Notification.permission !== "granted") return;
   try {
@@ -45,13 +56,16 @@ export function notifyBrowser({ title, body }) {
   }
 }
 
-let audioCtx = null;
+// Safari before 14.1 only has the prefixed constructor.
+type WebkitWindow = Window & typeof globalThis & { webkitAudioContext: typeof AudioContext };
+
+let audioCtx: AudioContext | null = null;
 
 // Creates/resumes the AudioContext. Call it from a click handler: browsers only allow audio to
 // start after a user gesture, so priming here lets the first alert beep actually play.
-export function primeAudio() {
+export function primeAudio(): AudioContext | null {
   try {
-    audioCtx ??= new (window.AudioContext || window.webkitAudioContext)();
+    audioCtx ??= new (window.AudioContext || (window as WebkitWindow).webkitAudioContext)();
     if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
     return audioCtx;
   } catch {
@@ -59,7 +73,7 @@ export function primeAudio() {
   }
 }
 
-export function beep() {
+export function beep(): void {
   try {
     const ctx = primeAudio();
     if (!ctx) return;
@@ -79,8 +93,22 @@ export function beep() {
   }
 }
 
-export function setDocumentTitle(title) {
+export function setDocumentTitle(title: string): void {
   if (typeof document !== "undefined") document.title = title;
+}
+
+export interface AlerterOptions {
+  notify?: (text: AlertText) => void;
+  beep?: () => void;
+  setTitle?: (title: string) => void;
+  windowMs?: number;
+  isHidden?: () => boolean;
+  soundOn?: () => boolean;
+}
+
+export interface Alerter {
+  push: (event: AlertEvent) => void;
+  focus: () => void;
 }
 
 export function createAlerter({
@@ -90,14 +118,14 @@ export function createAlerter({
   windowMs = 2000,
   isHidden = () => document.hidden,
   soundOn = readSoundSetting,
-} = {}) {
-  let buffer = [];
-  let timer = null;
+}: AlerterOptions = {}): Alerter {
+  let buffer: AlertEvent[] = [];
+  let timer: ReturnType<typeof setTimeout> | undefined;
   let unseen = 0;
-  const wentDown = new Set(); // device ids that went DOWN and have not reached UP since
+  const wentDown = new Set<number>(); // device ids that went DOWN and have not reached UP since
 
   const flush = () => {
-    timer = null;
+    timer = undefined;
     const events = buffer;
     buffer = [];
     if (!events.length) return;
@@ -114,7 +142,7 @@ export function createAlerter({
       }
       if (!shouldAlert(event, wasDown)) return;
       buffer.push(event);
-      if (timer === null) timer = setTimeout(flush, windowMs);
+      if (timer === undefined) timer = setTimeout(flush, windowMs);
       if (isHidden()) {
         unseen += 1;
         setTitle(`(${unseen}) ${event.message} – ${BASE_TITLE}`);
@@ -122,7 +150,7 @@ export function createAlerter({
     },
     focus() {
       clearTimeout(timer);
-      timer = null;
+      timer = undefined;
       buffer = [];
       unseen = 0;
       setTitle(BASE_TITLE);

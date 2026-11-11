@@ -1,5 +1,5 @@
 import { Button, ButtonGroup, Form } from "react-bootstrap";
-import { SORT_OPTIONS } from "./deviceView.js";
+import { SORT_OPTIONS } from "@/features/deviceView";
 
 const LIST_ICON = (
   <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">

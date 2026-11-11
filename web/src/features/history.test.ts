@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import type { HistoryOut } from "@/types";
 import {
   axisLabels,
   createDebouncer,
@@ -9,10 +10,15 @@ import {
   slotVariant,
   stripSummary,
   uptimeLabel,
-} from "./history.js";
+} from "./history";
+
+const EMPTY_HISTORY: HistoryOut = {
+  range: "24h", start: "", end: "", bucket_seconds: 900, problems_last_hour: 0,
+  overall: { problems: [], status: [] }, devices: [],
+};
 
 const START = "2026-11-11T04:00:00+00:00";
-const hm = (ms) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+const hm = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
 describe("slotTitle", () => {
   test("renders the slot's local-time range and status", () => {
@@ -50,7 +56,7 @@ describe("slotVariant", () => {
 });
 
 describe("historyFor", () => {
-  const history = { devices: [{ device_id: 2, buckets: ["UP"], uptime_pct: 100 }] };
+  const history: HistoryOut = { ...EMPTY_HISTORY, devices: [{ device_id: 2, buckets: ["UP"], uptime_pct: 100 }] };
   test("finds a device", () => {
     expect(historyFor(history, 2)).toEqual({ buckets: ["UP"], uptime_pct: 100 });
   });
@@ -64,13 +70,13 @@ describe("latestOnly", () => {
   test("drops stale responses", async () => {
     const guard = latestOnly();
     const defer = () => {
-      let resolve;
-      const promise = new Promise((r) => (resolve = r));
+      let resolve!: (value: string) => void;
+      const promise = new Promise<string>((r) => (resolve = r));
       return { promise, resolve };
     };
     const a = defer();
     const b = defer();
-    const applied = [];
+    const applied: string[] = [];
     guard(a.promise).then((v) => applied.push(v));
     guard(b.promise).then((v) => applied.push(v));
     b.resolve("B");
@@ -81,7 +87,7 @@ describe("latestOnly", () => {
 });
 
 describe("historyForRange", () => {
-  const h = { range: "24h", devices: [] };
+  const h: HistoryOut = EMPTY_HISTORY;
   test("returns the history only for a matching range", () => {
     expect(historyForRange(h, "24h")).toBe(h);
     expect(historyForRange(h, "1h")).toBeNull();
@@ -92,7 +98,7 @@ describe("historyForRange", () => {
 describe("latestOnly rejections", () => {
   test("swallows a stale rejection and passes the latest one through", async () => {
     const guard = latestOnly();
-    const seen = [];
+    const seen: string[] = [];
     guard(Promise.reject(new Error("old"))).catch((e) => seen.push(e.message));
     guard(Promise.reject(new Error("new"))).catch((e) => seen.push(e.message));
     await new Promise((r) => setTimeout(r, 0));
@@ -102,14 +108,14 @@ describe("latestOnly rejections", () => {
 
 describe("uptimeLabel", () => {
   test("formats uptime with up to two decimals", () => {
-    expect(uptimeLabel({ buckets: [], uptime_pct: 99.5 })).toBe("99.5% uptime");
-    expect(uptimeLabel({ buckets: [], uptime_pct: 100 })).toBe("100% uptime");
-    expect(uptimeLabel({ buckets: [], uptime_pct: 99.456 })).toBe("99.46% uptime");
-    expect(uptimeLabel({ buckets: [], uptime_pct: 0 })).toBe("0% uptime");
+    expect(uptimeLabel({ uptime_pct: 99.5 })).toBe("99.5% uptime");
+    expect(uptimeLabel({ uptime_pct: 100 })).toBe("100% uptime");
+    expect(uptimeLabel({ uptime_pct: 99.456 })).toBe("99.46% uptime");
+    expect(uptimeLabel({ uptime_pct: 0 })).toBe("0% uptime");
   });
   test("reads No history yet without a row or without uptime", () => {
     expect(uptimeLabel(null)).toBe("No history yet");
-    expect(uptimeLabel({ buckets: [], uptime_pct: null })).toBe("No history yet");
+    expect(uptimeLabel({ uptime_pct: null })).toBe("No history yet");
   });
 });
 

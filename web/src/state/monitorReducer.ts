@@ -1,20 +1,28 @@
+import type { DeviceOut, DeviceStatusOut, EventOut, LiveDevice, MonitorAction, MonitorState } from "@/types";
+
 const MAX_EVENTS = 500;
 const MAX_LATENCY = 60;
 
 // stale: the stream has been down long enough that the shown statuses cannot be trusted.
-export const initialState = {
+export const initialState: MonitorState = {
   devices: {}, order: [], events: [], connected: false, stale: false, loadError: null,
 };
 
-function patchDevice(state, id, patch) {
+function patchDevice(state: MonitorState, id: number, patch: Partial<LiveDevice>): MonitorState {
   const device = state.devices[id];
   if (!device) return state;
   return { ...state, devices: { ...state.devices, [id]: { ...device, ...patch } } };
 }
 
-function snapshot(state, { devices, statuses, events }) {
+interface SnapshotData {
+  devices: DeviceOut[];
+  statuses: DeviceStatusOut[];
+  events: EventOut[];
+}
+
+function snapshot(state: MonitorState, { devices, statuses, events }: SnapshotData): MonitorState {
   const live = new Map(statuses.map((s) => [s.device_id, s]));
-  const byId = {};
+  const byId: Record<number, LiveDevice> = {};
   for (const cfg of devices) {
     const s = live.get(cfg.id);
     byId[cfg.id] = {
@@ -35,7 +43,7 @@ function snapshot(state, { devices, statuses, events }) {
   };
 }
 
-export function monitorReducer(state, action) {
+export function monitorReducer(state: MonitorState, action: MonitorAction): MonitorState {
   switch (action.type) {
     case "SNAPSHOT":
       return snapshot(state, action);
@@ -52,7 +60,7 @@ export function monitorReducer(state, action) {
       const device = state.devices[p.device_id];
       if (!device) return state;
       const latency = [...device.latency, p.latency_ms ?? null].slice(-MAX_LATENCY);
-      const patch = { results: p.results, latency };
+      const patch: Partial<LiveDevice> = { results: p.results, latency };
       // The backend sends the current status with every result, so a missed STATUS heals here.
       if (p.status !== undefined) {
         Object.assign(patch, { status: p.status, since: p.since, consecutive_failures: p.consecutive_failures });

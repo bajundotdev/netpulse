@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { slotTitle, slotVariant, stripSummary } from "./history.js";
+import { slotTitle, slotVariant, stripSummary } from "@/features/history";
 
 const BG = {
   success: "bg-success",

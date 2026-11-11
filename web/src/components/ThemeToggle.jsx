@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Button } from "react-bootstrap";
-import { applyTheme, readTheme, writeTheme } from "../state/theme.js";
+import { applyTheme, readTheme, writeTheme } from "../state/theme";
 
 const Sun = () => (
   <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { formatResultValue, formatUptime } from "./format.js";
-import { applySnmpChanges, buildSnmpPayload, desiredSnmpChecks, snmpFormOf, EMPTY_SNMP } from "./snmp.js";
+import type { CheckIn, CheckOut, SnmpOut } from "@/types";
+import { formatResultValue, formatUptime } from "./format";
+import { applySnmpChanges, buildSnmpPayload, desiredSnmpChecks, snmpFormOf, EMPTY_SNMP, type SnmpForm } from "./snmp";
+import type { BaselineError } from "./ports";
+
+const checkOut = (id: number, spec: CheckIn): CheckOut => ({ id, device_id: 1, created_at: "", enabled: true, ...spec });
 
 describe("formatUptime", () => {
   it("formats ticks as days/hours, hours/minutes or minutes", () => {
@@ -25,25 +29,29 @@ describe("buildSnmpPayload", () => {
   it("omits blank secrets so the backend keeps them", () => {
     const p = buildSnmpPayload({ ...EMPTY_SNMP, version: "v3", user: "mon", authProto: "SHA", authKey: "", privProto: "AES128", privKey: "" });
     expect(p).toEqual({ version: "v3", port: 161, user: "mon", auth_proto: "SHA", priv_proto: "AES128" });
-    expect("auth_key" in p).toBe(false);
-    expect("priv_key" in p).toBe(false);
+    expect("auth_key" in (p ?? {})).toBe(false);
+    expect("priv_key" in (p ?? {})).toBe(false);
   });
   it("sends a typed v2c community and omits a blank one", () => {
-    expect(buildSnmpPayload({ ...EMPTY_SNMP, version: "v2c", community: "public" }).community).toBe("public");
-    expect("community" in buildSnmpPayload({ ...EMPTY_SNMP, version: "v2c" })).toBe(false);
+    expect(buildSnmpPayload({ ...EMPTY_SNMP, version: "v2c", community: "public" })?.community).toBe("public");
+    expect("community" in (buildSnmpPayload({ ...EMPTY_SNMP, version: "v2c" }) ?? {})).toBe(false);
   });
 });
 
 describe("snmpFormOf", () => {
   it("never carries secrets", () => {
-    const f = snmpFormOf({ snmp: { version: "v2c", port: 161, has_community: true }, checks: [{ id: 1, type: "snmp_uptime", params: {} }] });
+    const snmp: SnmpOut = {
+      version: "v2c", port: 161, user: null, auth_proto: "none", priv_proto: "none",
+      has_community: true, has_auth_key: false, has_priv_key: false,
+    };
+    const f = snmpFormOf({ snmp, checks: [checkOut(1, { type: "snmp_uptime", params: {} })] });
     expect(f.community).toBe("");
     expect(f.uptime).toBe(true);
   });
 });
 
 describe("applySnmpChanges", () => {
-  const form = { ...EMPTY_SNMP, version: "v2c", uptime: true, interfaces: true, ifIndexes: "2, 1", oids: [{ oid: "1.3.6.1.2.1.1.5.0", label: "", mode: "change", op: ">", value: "" }] };
+  const form: SnmpForm = { ...EMPTY_SNMP, version: "v2c", uptime: true, interfaces: true, ifIndexes: "2, 1", oids: [{ oid: "1.3.6.1.2.1.1.5.0", label: "", mode: "change", op: ">", value: "" }] };
 
   it("builds desired checks", () => {
     expect(desiredSnmpChecks(form)).toEqual([
@@ -54,16 +62,16 @@ describe("applySnmpChanges", () => {
   });
 
   it("adds, updates and deletes, leaving tcp alone", async () => {
-    const calls = [];
+    const calls: [string, string | number][] = [];
     const api = {
-      addCheck: async (_, b) => (calls.push(["add", b.type]), { id: 9, device_id: 1, ...b }),
-      updateCheck: async (id, b) => (calls.push(["update", id]), { id, device_id: 1, ...b }),
-      deleteCheck: async (id) => calls.push(["delete", id]),
+      addCheck: async (_deviceId: number, b: CheckIn) => (calls.push(["add", b.type]), checkOut(9, b)),
+      updateCheck: async (id: number, b: CheckIn) => (calls.push(["update", id]), checkOut(id, b)),
+      deleteCheck: async (id: number) => void calls.push(["delete", id]),
     };
     const baseline = [
-      { id: 1, type: "tcp", params: { port: 80 } },
-      { id: 2, type: "snmp_if", params: {} },
-      { id: 3, type: "snmp_oid", params: { oid: "1.3.6.1.9", label: "x", mode: "change" } },
+      checkOut(1, { type: "tcp", params: { port: 80 } }),
+      checkOut(2, { type: "snmp_if", params: {} }),
+      checkOut(3, { type: "snmp_oid", params: { oid: "1.3.6.1.9", label: "x", mode: "change" } }),
     ];
     const result = await applySnmpChanges(1, baseline, desiredSnmpChecks(form), api);
     expect(calls).toEqual([["delete", 3], ["update", 2], ["add", "snmp_uptime"], ["add", "snmp_oid"]]);
@@ -73,12 +81,15 @@ describe("applySnmpChanges", () => {
   it("reports the real baseline when a call fails", async () => {
     const api = {
       addCheck: async () => { throw new Error("boom"); },
-      updateCheck: async () => ({}),
+      updateCheck: async () => checkOut(1, { type: "snmp_uptime", params: {} }),
       deleteCheck: async () => {},
     };
-    const baseline = [{ id: 3, type: "snmp_uptime", params: {} }];
+    const baseline = [checkOut(3, { type: "snmp_uptime", params: {} })];
     await expect(applySnmpChanges(1, baseline, [], api)).resolves.toEqual([]);
-    const err = await applySnmpChanges(1, [], [{ type: "snmp_uptime", params: {} }], api).catch((e) => e);
+    const err: BaselineError = await applySnmpChanges(1, [], [{ type: "snmp_uptime", params: {} }], api).then(
+      () => new Error("expected the call to fail"),
+      (e: unknown) => e as BaselineError,
+    );
     expect(err.baseline).toEqual([]);
   });
 });

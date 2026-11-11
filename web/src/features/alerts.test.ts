@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { coalesceAlerts, createAlerter, shouldAlert } from "./alerts.js";
+import type { DeviceStatus } from "@/types";
+import { coalesceAlerts, createAlerter, shouldAlert, type AlertEvent } from "./alerts";
 
-const down = (i) => ({
+const down = (i: number): AlertEvent & { id: number } => ({
   id: i, severity: "critical", kind: "status_change",
   message: `host${i} is DOWN`, status: "DOWN", previous_status: "UP",
 });
@@ -13,11 +14,11 @@ describe("shouldAlert", () => {
     expect(shouldAlert(down(1))).toBe(true);
     expect(shouldAlert({ severity: "critical", kind: "reboot", message: "rebooted" })).toBe(true);
     expect(shouldAlert({ severity: "critical", kind: "oid_threshold", message: "cpu high" })).toBe(true);
-    expect(shouldAlert({ severity: "info", kind: "status_change", previous_status: "DOWN", status: "UP" })).toBe(true);
-    expect(shouldAlert({ severity: "warning", kind: "status_change", previous_status: "UP", status: "DEGRADED" })).toBe(false);
+    expect(shouldAlert({ severity: "info", kind: "status_change", message: "x", previous_status: "DOWN", status: "UP" })).toBe(true);
+    expect(shouldAlert({ severity: "warning", kind: "status_change", message: "x", previous_status: "UP", status: "DEGRADED" })).toBe(false);
     // DEGRADED -> UP alerts only when the device was DOWN earlier in the session
-    expect(shouldAlert({ severity: "info", kind: "status_change", previous_status: "DEGRADED", status: "UP" })).toBe(false);
-    expect(shouldAlert({ severity: "info", kind: "status_change", previous_status: "DEGRADED", status: "UP" }, true)).toBe(true);
+    expect(shouldAlert({ severity: "info", kind: "status_change", message: "x", previous_status: "DEGRADED", status: "UP" })).toBe(false);
+    expect(shouldAlert({ severity: "info", kind: "status_change", message: "x", previous_status: "DEGRADED", status: "UP" }, true)).toBe(true);
     expect(shouldAlert({ severity: "info", kind: "device_added", message: "x" })).toBe(false);
   });
 });
@@ -105,7 +106,7 @@ describe("createAlerter", () => {
     expect(setTitle).not.toHaveBeenCalled();
   });
 
-  const change = (device_id, previous_status, status) => ({
+  const change = (device_id: number, previous_status: DeviceStatus, status: DeviceStatus): AlertEvent => ({
     device_id, kind: "status_change", previous_status, status,
     severity: status === "DOWN" ? "critical" : status === "DEGRADED" ? "warning" : "info",
     message: `dc${device_id} ${status}`,

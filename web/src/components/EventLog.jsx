@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Alert, Badge, Button, Card, Form, Table } from "react-bootstrap";
-import { ackEvent, clearEvents } from "../api.js";
+import { ackEvent, clearEvents } from "@/api/client";
 import { useMonitor } from "../state/MonitorContext.jsx";
-import { formatEventTime, severityVariant } from "./format.js";
+import { formatEventTime, severityVariant } from "@/features/format";
 
 export default function EventLog() {
   const { state, dispatch } = useMonitor();

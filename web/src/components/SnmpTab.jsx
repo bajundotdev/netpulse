@@ -1,5 +1,5 @@
 import { Button, CloseButton, Col, Form, Row } from "react-bootstrap";
-import { newOidRow } from "./snmp.js";
+import { newOidRow } from "@/features/snmp";
 
 const AUTH_PROTOS = ["none", "MD5", "SHA", "SHA256"];
 const PRIV_PROTOS = ["none", "DES", "AES128", "AES256"];

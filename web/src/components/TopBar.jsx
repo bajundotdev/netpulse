@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Badge, Button, Container, Navbar } from "react-bootstrap";
 import ThemeToggle from "./ThemeToggle.jsx";
-import { primeAudio, readSoundSetting, writeSoundSetting } from "../alerts.js";
+import { primeAudio, readSoundSetting, writeSoundSetting } from "@/features/alerts";
 
 const notificationPermission = () =>
   typeof Notification === "undefined" ? "unsupported" : Notification.permission;
