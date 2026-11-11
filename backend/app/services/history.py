@@ -37,14 +37,15 @@ class HistoryService:
         self._clock = clock
 
     async def get(self, range_key: str) -> dict:
-        now = self._clock()
+        # One synchronous step through the runner: a single consistent read of the
+        # database and all the slot maths off the event loop.
+        return await self._run(self._build, range_key, self._clock())
+
+    def _build(self, range_key: str, now: datetime) -> dict:
         start, end, bucket_s = window(range_key, now)
-        rows = await self._run(self._history.window_rows, start, end)
-        devices = await self._run(self._devices.list)
-        problems_last_hour = await self._run(
-            self._history.problem_entries_since, now - timedelta(seconds=3600)
-        )
-        ids = sorted(d.id for d in devices)
+        rows = self._history.window_rows(start, end)
+        ids = sorted(d.id for d in self._devices.list())
+        problems_last_hour = self._history.problem_entries_since(now - timedelta(seconds=3600))
         slots = {i: bucketize(rows.get(i, []), start, end, bucket_s, now) for i in ids}
         if ids:
             problems, status = overall([slots[i] for i in ids])

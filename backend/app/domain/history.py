@@ -60,15 +60,17 @@ def bucketize(
     step = timedelta(seconds=bucket_s)
     slots: list[str | None] = []
     slot_start = start
+    first = 0  # segments are sorted and disjoint: skip those already behind the slot
     while slot_start < end:
         slot_end = slot_start + step
-        slots.append(
-            worst(
-                status
-                for seg_start, seg_end, status in segments
-                if seg_start < slot_end and seg_end > slot_start
-            )
-        )
+        while first < len(segments) and segments[first][1] <= slot_start:
+            first += 1
+        seen = []
+        for seg_start, _seg_end, status in segments[first:]:
+            if seg_start >= slot_end:
+                break
+            seen.append(status)
+        slots.append(worst(seen))
         slot_start = slot_end
     return slots
 

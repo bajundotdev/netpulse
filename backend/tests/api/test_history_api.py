@@ -109,4 +109,5 @@ def test_history_7d_with_20_devices_is_fast(client):
     elapsed = time.perf_counter() - started
     assert r.status_code == 200
     assert len(r.json()["devices"]) == 20
+    print(f"history 7d request: {elapsed:.4f}s")
     assert elapsed < 0.2, elapsed

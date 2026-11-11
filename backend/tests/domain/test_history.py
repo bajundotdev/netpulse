@@ -92,3 +92,21 @@ def test_overall_counts_problem_devices_and_worst_status():
 
 def test_overall_of_no_devices_is_empty():
     assert overall([]) == ([], [])
+
+
+def test_bucketize_is_linear_over_many_transitions():
+    import time
+
+    from app.domain.history import bucketize, window
+
+    now = datetime(2026, 11, 11, 5, 0, tzinfo=UTC)
+    start, end, bucket_s = window("7d", now)
+    # Alternating UP/DOWN every 30 seconds for 7 days+: every 2-hour slot has a DOWN.
+    base = start - timedelta(minutes=10)
+    rows = [(base + timedelta(seconds=30 * i), "UP" if i % 2 == 0 else "DOWN") for i in range(20200)]
+    began = time.perf_counter()
+    slots = bucketize(rows, start, end, bucket_s, now)
+    elapsed = time.perf_counter() - began
+    assert len(slots) == 84
+    assert slots == ["DOWN"] * 84
+    assert elapsed < 0.05, elapsed
