@@ -4,9 +4,11 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from fastapi import APIRouter, Request
-from fastapi.responses import StreamingResponse
+from fastapi.sse import EventSourceResponse, ServerSentEvent
 
-HEARTBEAT_S = 15.0
+# How often an idle stream checks whether it was dropped as a slow client.
+# Keep-alive pings, no-cache headers and disconnect handling come from FastAPI.
+DROP_CHECK_S = 15.0
 
 
 class SseBroadcaster:
@@ -30,24 +32,24 @@ class SseBroadcaster:
                 self.unregister(q)  # too slow; the browser reconnects and reloads /status
 
 
-def format_sse(topic: str, payload: Any) -> str:
-    return f"event: {topic}\ndata: {json.dumps(payload, default=str)}\n\n"
+def to_event(topic: str, payload: Any) -> ServerSentEvent:
+    # raw_data keeps our own JSON encoding (datetimes via str) instead of FastAPI's.
+    return ServerSentEvent(event=topic, raw_data=json.dumps(payload, default=str))
 
 
 async def event_stream(
-    broadcaster: SseBroadcaster, request: Request, heartbeat_s: float = HEARTBEAT_S
-) -> AsyncIterator[str]:
+    broadcaster: SseBroadcaster, check_s: float = DROP_CHECK_S
+) -> AsyncIterator[ServerSentEvent]:
     q = broadcaster.register()
     try:
-        while not await request.is_disconnected():
+        while True:
             try:
-                topic, payload = await asyncio.wait_for(q.get(), timeout=heartbeat_s)
+                topic, payload = await asyncio.wait_for(q.get(), timeout=check_s)
             except TimeoutError:
                 if q not in broadcaster.clients:
                     return  # dropped as a slow client; end so the browser reconnects
-                yield ": ping\n\n"
                 continue
-            yield format_sse(topic, payload)
+            yield to_event(topic, payload)
             if q not in broadcaster.clients and q.empty():
                 return
     finally:
@@ -57,11 +59,8 @@ async def event_stream(
 router = APIRouter()
 
 
-@router.get("/stream")
-async def stream(request: Request) -> StreamingResponse:
+@router.get("/stream", response_class=EventSourceResponse)
+async def stream(request: Request) -> AsyncIterator[ServerSentEvent]:
     broadcaster: SseBroadcaster = request.app.state.container.broadcaster
-    return StreamingResponse(
-        event_stream(broadcaster, request),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
+    async for event in event_stream(broadcaster):
+        yield event
