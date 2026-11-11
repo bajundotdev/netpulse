@@ -450,3 +450,49 @@ async def test_slow_dns_is_liveness_failure_with_reason_dns():
     results = await mon.run_cycle(device(timeout_ms=200))
     assert loop.time() - started < 2.0  # timeout_ms/1000 + 1 s
     assert results[0].ok is False and results[0].reason == "dns"
+
+
+async def test_restart_with_same_status_logs_no_event():
+    mon, store, bus = build(FakeChecker([ok()]))
+    mon.set_last_known({1: "UP"})
+    await mon.run_cycle(device())
+    assert [s["status"] for s in bus.of("status")] == ["UP"]  # history and UI still updated
+    assert bus.of("domain_event") == []
+
+
+async def test_restart_with_changed_status_logs_change_from_last_known():
+    mon, store, bus = build(FakeChecker([ok()]))
+    mon.set_last_known({1: "DOWN"})
+    await mon.run_cycle(device())
+    [ev] = bus.of("domain_event")
+    assert (ev.status, ev.previous_status) == ("UP", "DOWN")  # recovery while NetPulse was off
+
+
+async def test_last_known_status_is_used_only_for_the_first_change():
+    mon, store, bus = build(FakeChecker([ok(), fail(), fail()]))
+    mon.set_last_known({1: "UP"})
+    for _ in range(3):
+        await mon.run_cycle(device())
+    [ev] = bus.of("domain_event")
+    assert (ev.status, ev.previous_status) == ("DOWN", "UP")
+
+
+async def test_restart_paused_device_with_same_status_logs_no_event():
+    mon, store, bus = build(FakeChecker([ok()]))
+    mon.set_last_known({1: "PAUSED"})
+    await mon.upsert(device(enabled=False))
+    assert store.state(1).status is DeviceStatus.PAUSED
+    assert bus.of("domain_event") == []
+
+
+async def test_start_passes_last_known_statuses():
+    mon, store, bus = build(FakeChecker([ok()] * 50))
+    await mon.start([device()], last_known={1: "UP"})
+    try:
+        for _ in range(100):
+            if bus.of("result"):
+                break
+            await asyncio.sleep(0.01)
+        assert bus.of("domain_event") == []
+    finally:
+        await mon.stop()

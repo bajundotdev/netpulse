@@ -134,7 +134,12 @@ def create_app(
                 log.exception("history prune failed")
             prune_task = asyncio.create_task(_prune_hourly(c))
             if start_monitor:
-                await c.monitor.start(await c.devices.configs())
+                try:
+                    last_known = await c.db(c.history.last_known_statuses)
+                except Exception:
+                    log.exception("could not read last known statuses")
+                    last_known = {}
+                await c.monitor.start(await c.devices.configs(), last_known=last_known)
             yield
         finally:
             if prune_task is not None:

@@ -22,7 +22,9 @@ procedure: set up in a minute, no agents, no templates.
   `DOWN` (liveness failed `fail_threshold` times in a row), `PAUSED`.
   Defaults: poll every 5 s, `DOWN` after 2 consecutive failures, 1000 ms timeout.
 - **Event log:** persistent, with filter, acknowledge and clear. Events are written only
-  when something changes, never on every poll.
+  when something changes, never on every poll. Restarting NetPulse does not log devices
+  again unless their status differs from before the restart. Info events (a device coming
+  up, a pause) arrive already acknowledged; only warnings and critical events wait for **Ack**.
 - **Status history:** every status change is kept for 30 days and drawn on the dashboard
   (see below).
 

@@ -38,10 +38,11 @@ def test_events_bad_query_is_422(client):
 
 def test_events_ack_and_clear(client):
     seed(client, 2)
-    first = client.get("/api/events").json()[0]
+    first = next(e for e in client.get("/api/events").json() if e["severity"] == "critical")
     assert first["acknowledged"] is False
     assert client.post(f"/api/events/{first['id']}/ack").status_code == 204
-    assert client.get("/api/events").json()[0]["acknowledged"] is True
+    acked = {e["id"]: e["acknowledged"] for e in client.get("/api/events").json()}
+    assert acked[first["id"]] is True
     assert client.post("/api/events/999/ack").status_code == 404
     assert client.delete("/api/events").json() == {"deleted": 2}
     assert client.get("/api/events").json() == []

@@ -200,6 +200,8 @@ class EventRepository:
             message=ev.message,
             status=ev.status,
             previous_status=ev.previous_status,
+            # Info events (a device coming UP, a pause) need no attention, so they start acknowledged.
+            acknowledged=str(ev.severity) == "info",
         )
         with self._sf() as s:
             s.add(row)
@@ -276,6 +278,28 @@ class StatusHistoryRepository:
             known = s.scalars(select(DeviceRow.id).where(DeviceRow.id.in_(set(device_ids))))
             s.add_all(StatusHistoryRow(device_id=i, status=status, ts=naive) for i in sorted(known))
             s.commit()
+
+    def last_known_statuses(self) -> dict[int, str]:
+        """Each device's newest real status (UP, DEGRADED, DOWN or PAUSED), ignoring the
+        STOPPED and UNKNOWN rows a shutdown and restart write."""
+        real = ("UP", "DEGRADED", "DOWN", "PAUSED")
+        ranked = (
+            select(
+                StatusHistoryRow.device_id,
+                StatusHistoryRow.status,
+                func.row_number()
+                .over(
+                    partition_by=StatusHistoryRow.device_id,
+                    order_by=(StatusHistoryRow.ts.desc(), StatusHistoryRow.id.desc()),
+                )
+                .label("rn"),
+            )
+            .where(StatusHistoryRow.status.in_(real))
+            .subquery()
+        )
+        with self._sf() as s:
+            rows = s.execute(select(ranked.c.device_id, ranked.c.status).where(ranked.c.rn == 1))
+            return {device_id: status for device_id, status in rows}
 
     def window_rows(self, start: datetime, end: datetime) -> dict[int, list[Transition]]:
         """Per device, rows in [start, end] by (ts, id), plus its newest row before start."""
