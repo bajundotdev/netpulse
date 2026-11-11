@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { X } from "lucide-react";
-import DeviceDetail from "./components/DeviceDetail.jsx";
+import DeviceDetail from "./components/DeviceDetail";
 import DeviceToolbar from "./components/DeviceToolbar.jsx";
-import DeviceForm from "./components/DeviceForm.jsx";
+import DeviceForm from "./components/DeviceForm";
 import DeviceGrid from "./components/DeviceGrid";
 import DeviceList from "./components/DeviceList";
-import EventLog from "./components/EventLog.jsx";
+import EventLog from "./components/EventLog";
 import StatusPanel from "./components/StatusPanel.jsx";
 import SummaryStrip from "./components/SummaryStrip";
 import TopBar from "./components/TopBar";
@@ -15,11 +15,11 @@ import { SORT_OPTIONS, filterDevices, sortDevices } from "@/features/deviceView"
 import { readPref, writePref } from "./state/prefs";
 import { useMonitor } from "./state/MonitorContext";
 import { historyForRange } from "@/features/history";
-import type { Range, SortKey } from "@/types";
+import type { LiveDevice, Range, SortKey } from "@/types";
 import { useHistory } from "./state/useHistory";
 
 // null = closed, {} = add, {device} = edit
-type FormState = { device?: unknown } | null;
+type FormState = { device?: LiveDevice } | null;
 
 export default function App() {
   const { state, reload } = useMonitor();
@@ -138,7 +138,7 @@ export default function App() {
         <DeviceDetail
           device={detail}
           onClose={() => setDetailId(null)}
-          onEdit={(device: unknown) => setForm({ device })}
+          onEdit={(device: LiveDevice) => setForm({ device })}
         />
       )}
       {form && <DeviceForm device={form.device} onSaved={onSaved} onClose={() => setForm(null)} />}
