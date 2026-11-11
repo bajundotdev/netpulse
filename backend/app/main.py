@@ -35,7 +35,7 @@ from app.monitoring.snmp_client import PysnmpClient
 from app.monitoring.status_store import StatusStore
 from app.services.devices import DeviceService, ValidationFailed
 from app.services.events import EventLogWriter, EventService
-from app.services.history import HistoryWriter
+from app.services.history import HistoryService, HistoryWriter
 
 WEB_DIST = REPO_ROOT / "web" / "dist"
 
@@ -59,6 +59,7 @@ class Container:
     events: EventService
     history: StatusHistoryRepository
     history_writer: HistoryWriter
+    history_service: HistoryService
 
 
 def _build_container(settings: Settings, factory: CheckerFactory | None) -> Container:
@@ -95,6 +96,7 @@ def _build_container(settings: Settings, factory: CheckerFactory | None) -> Cont
         events=EventService(event_repo, db),
         history=history_repo,
         history_writer=history_writer,
+        history_service=HistoryService(history_repo, device_repo, db),
     )
 
 

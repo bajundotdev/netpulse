@@ -1,6 +1,8 @@
-from datetime import datetime
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 
-from app.infra.repositories import StatusHistoryRepository
+from app.domain.history import bucketize, overall, uptime_pct, window
+from app.infra.repositories import DeviceRepository, StatusHistoryRepository
 from app.services.events import RunDb
 
 
@@ -17,3 +19,51 @@ class HistoryWriter:
 
     async def stopped(self, device_ids: list[int], ts: datetime) -> None:
         await self._run(self._repo.add_many, device_ids, "STOPPED", ts)
+
+
+class HistoryService:
+    """Builds the `GET /api/history` payload: slots, uptime and problem counts per device."""
+
+    def __init__(
+        self,
+        history_repo: StatusHistoryRepository,
+        device_repo: DeviceRepository,
+        run: RunDb,
+        clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+    ) -> None:
+        self._history = history_repo
+        self._devices = device_repo
+        self._run = run
+        self._clock = clock
+
+    async def get(self, range_key: str) -> dict:
+        now = self._clock()
+        start, end, bucket_s = window(range_key, now)
+        rows = await self._run(self._history.window_rows, start, end)
+        devices = await self._run(self._devices.list)
+        problems_last_hour = await self._run(
+            self._history.problem_entries_since, now - timedelta(seconds=3600)
+        )
+        ids = sorted(d.id for d in devices)
+        slots = {i: bucketize(rows.get(i, []), start, end, bucket_s, now) for i in ids}
+        if ids:
+            problems, status = overall([slots[i] for i in ids])
+        else:
+            count = len(bucketize([], start, end, bucket_s, now))
+            problems, status = [0] * count, [None] * count
+        return {
+            "range": range_key,
+            "start": start,
+            "end": end,
+            "bucket_seconds": bucket_s,
+            "problems_last_hour": problems_last_hour,
+            "overall": {"problems": problems, "status": status},
+            "devices": [
+                {
+                    "device_id": i,
+                    "buckets": slots[i],
+                    "uptime_pct": uptime_pct(rows.get(i, []), start, end, now),
+                }
+                for i in ids
+            ],
+        }

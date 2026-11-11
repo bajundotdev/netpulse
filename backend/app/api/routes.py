@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Query, Request, Response
 
@@ -10,11 +10,13 @@ from app.schemas import (
     DeviceStatusOut,
     DeviceUpdate,
     EventOut,
+    HistoryOut,
     ResultOut,
     Severity,
 )
 from app.services.devices import DeviceService
 from app.services.events import EventService
+from app.services.history import HistoryService
 
 router = APIRouter()
 
@@ -25,6 +27,10 @@ def _devices(request: Request) -> DeviceService:
 
 def _events(request: Request) -> EventService:
     return request.app.state.container.events
+
+
+def _history(request: Request) -> HistoryService:
+    return request.app.state.container.history_service
 
 
 @router.get("/health")
@@ -109,3 +115,10 @@ async def ack_event(event_id: int, request: Request) -> Response:
 @router.delete("/events")
 async def clear_events(request: Request) -> dict[str, int]:
     return {"deleted": await _events(request).clear()}
+
+
+@router.get("/history")
+async def get_history(
+    request: Request, range: Literal["1h", "24h", "7d"] = "24h"
+) -> HistoryOut:
+    return HistoryOut(**await _history(request).get(range))
