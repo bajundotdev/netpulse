@@ -1,14 +1,7 @@
-import { useEffect, useState } from "react";
 import { Col, Row } from "react-bootstrap";
 import DeviceCard from "./DeviceCard.jsx";
 
-export default function DeviceGrid({ devices, onOpen }) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, []);
-
+export default function DeviceGrid({ devices, now, onOpen }) {
   if (devices.length === 0) {
     return <p className="text-body-secondary">No devices yet. Use "Add device" to start monitoring.</p>;
   }

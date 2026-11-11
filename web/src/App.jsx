@@ -1,11 +1,14 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Alert, Col, Container, Row } from "react-bootstrap";
 import DeviceDetail from "./components/DeviceDetail.jsx";
+import DeviceToolbar from "./components/DeviceToolbar.jsx";
 import DeviceForm from "./components/DeviceForm.jsx";
 import DeviceGrid from "./components/DeviceGrid.jsx";
 import EventLog from "./components/EventLog.jsx";
 import SummaryStrip from "./components/SummaryStrip.jsx";
 import TopBar from "./components/TopBar.jsx";
+import { SORT_OPTIONS, filterDevices, sortDevices } from "./components/deviceView.js";
+import { readPref, writePref } from "./state/prefs.js";
 import { useMonitor } from "./state/MonitorContext.jsx";
 
 export default function App() {
@@ -15,7 +18,31 @@ export default function App() {
   // null = closed, {} = add, {device} = edit
   const [form, setForm] = useState(null);
 
+  const [now, setNow] = useState(() => Date.now());
+  const [query, setQuery] = useState("");
+  const [view, setView] = useState(() => readPref("netpulse.view", "list", ["list", "cards"]));
+  const [sort, setSort] = useState(() =>
+    readPref("netpulse.sort", "problems", SORT_OPTIONS.map((o) => o.key)),
+  );
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  const changeView = (v) => {
+    setView(v);
+    writePref("netpulse.view", v);
+  };
+  const changeSort = (s) => {
+    setSort(s);
+    writePref("netpulse.sort", s);
+  };
+
   const devices = state.order.map((id) => state.devices[id]);
+  const visible = useMemo(
+    () => sortDevices(filterDevices(devices, query), sort),
+    [state.devices, state.order, query, sort],
+  );
   const detail = detailId !== null ? state.devices[detailId] : null;
   const showError = state.loadError && state.loadError !== dismissedError;
 
@@ -41,7 +68,22 @@ export default function App() {
         <SummaryStrip devices={devices} />
         <Row className="g-3">
           <Col lg={8} className={state.stale ? "opacity-50" : undefined}>
-            <DeviceGrid devices={devices} onOpen={setDetailId} />
+            <DeviceToolbar
+              total={devices.length}
+              shown={visible.length}
+              query={query}
+              onQuery={setQuery}
+              sort={sort}
+              onSort={changeSort}
+              view={view}
+              onView={changeView}
+            />
+            {/* The list view arrives with DeviceList; until then both views render the card grid. */}
+            {devices.length > 0 && visible.length === 0 ? (
+              <p className="text-body-secondary">No devices match “{query.trim()}”</p>
+            ) : (
+              <DeviceGrid devices={visible} now={now} onOpen={setDetailId} />
+            )}
           </Col>
           <Col lg={4}>
             <EventLog />
