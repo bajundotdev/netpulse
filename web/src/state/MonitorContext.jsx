@@ -30,7 +30,7 @@ export function MonitorProvider({ children, onStatus, onEvent }) {
   useMonitorStream(dispatch, reload, onStatus, onEvent, isKnown);
 
   const value = useMemo(() => ({ state, dispatch, reload }), [state, reload]);
-  return <MonitorContext.Provider value={value}>{children}</MonitorContext.Provider>;
+  return <MonitorContext value={value}>{children}</MonitorContext>;
 }
 
 export function useMonitor() {
