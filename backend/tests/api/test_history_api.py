@@ -109,5 +109,20 @@ def test_history_7d_with_20_devices_is_fast(client):
     elapsed = time.perf_counter() - started
     assert r.status_code == 200
     assert len(r.json()["devices"]) == 20
-    print(f"history 7d request: {elapsed:.4f}s")
     assert elapsed < 0.2, elapsed
+
+
+def test_startup_survives_a_failing_prune(settings, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from app.infra.repositories import StatusHistoryRepository
+    from app.main import create_app
+    from tests.api.conftest import fake_factory
+
+    def boom(self, cutoff):
+        raise RuntimeError("transient")
+
+    monkeypatch.setattr(StatusHistoryRepository, "prune", boom)
+    app = create_app(settings, factory=fake_factory(), start_monitor=False)
+    with TestClient(app, base_url="http://localhost") as c:
+        assert c.get("/api/health").status_code == 200

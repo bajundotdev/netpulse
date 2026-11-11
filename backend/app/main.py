@@ -128,7 +128,10 @@ def create_app(
         app.state.container = c
         prune_task: asyncio.Task | None = None
         try:
-            await _prune(c)
+            try:
+                await _prune(c)
+            except Exception:
+                log.exception("history prune failed")
             prune_task = asyncio.create_task(_prune_hourly(c))
             if start_monitor:
                 await c.monitor.start(await c.devices.configs())
