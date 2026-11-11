@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Alert, Col, Container, Row } from "react-bootstrap";
+import { X } from "lucide-react";
 import DeviceDetail from "./components/DeviceDetail.jsx";
 import DeviceToolbar from "./components/DeviceToolbar.jsx";
 import DeviceForm from "./components/DeviceForm.jsx";
@@ -7,28 +7,33 @@ import DeviceGrid from "./components/DeviceGrid.jsx";
 import DeviceList from "./components/DeviceList.jsx";
 import EventLog from "./components/EventLog.jsx";
 import StatusPanel from "./components/StatusPanel.jsx";
-import SummaryStrip from "./components/SummaryStrip.jsx";
-import TopBar from "./components/TopBar.jsx";
+import SummaryStrip from "./components/SummaryStrip";
+import TopBar from "./components/TopBar";
+import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { SORT_OPTIONS, filterDevices, sortDevices } from "@/features/deviceView";
 import { readPref, writePref } from "./state/prefs";
-import { useMonitor } from "./state/MonitorContext.jsx";
+import { useMonitor } from "./state/MonitorContext";
 import { historyForRange } from "@/features/history";
+import type { Range, SortKey } from "@/types";
 import { useHistory } from "./state/useHistory";
+
+// null = closed, {} = add, {device} = edit
+type FormState = { device?: unknown } | null;
 
 export default function App() {
   const { state, reload } = useMonitor();
-  const [dismissedError, setDismissedError] = useState(null);
-  const [detailId, setDetailId] = useState(null);
-  // null = closed, {} = add, {device} = edit
-  const [form, setForm] = useState(null);
+  const [dismissedError, setDismissedError] = useState<string | null>(null);
+  const [detailId, setDetailId] = useState<number | null>(null);
+  const [form, setForm] = useState<FormState>(null);
 
   const [now, setNow] = useState(() => Date.now());
   const [query, setQuery] = useState("");
-  const [view, setView] = useState(() => readPref("netpulse.view", "list", ["list", "cards"]));
+  const [view, setView] = useState(() => readPref<"list" | "cards">("netpulse.view", "list", ["list", "cards"]));
   const [sort, setSort] = useState(() =>
-    readPref("netpulse.sort", "problems", SORT_OPTIONS.map((o) => o.key)),
+    readPref<SortKey>("netpulse.sort", "problems", SORT_OPTIONS.map((o) => o.key)),
   );
-  const [range, setRange] = useState(() => readPref("netpulse.range", "24h", ["1h", "24h", "7d"]));
+  const [range, setRange] = useState(() => readPref<Range>("netpulse.range", "24h", ["1h", "24h", "7d"]));
   const statusKey = state.order.map((id) => `${id}:${state.devices[id]?.status}`).join(",");
   const history = useHistory(range, state.order.join(","), statusKey);
   useEffect(() => {
@@ -36,15 +41,15 @@ export default function App() {
     return () => clearInterval(t);
   }, []);
 
-  const changeView = (v) => {
+  const changeView = (v: typeof view) => {
     setView(v);
     writePref("netpulse.view", v);
   };
-  const changeRange = (r) => {
+  const changeRange = (r: typeof range) => {
     setRange(r);
     writePref("netpulse.range", r);
   };
-  const changeSort = (s) => {
+  const changeSort = (s: typeof sort) => {
     setSort(s);
     writePref("netpulse.sort", s);
   };
@@ -62,15 +67,29 @@ export default function App() {
   return (
     <>
       <TopBar connected={state.connected} onAdd={() => setForm({})} />
-      <Container fluid>
+      <main className="w-full px-4 pb-6">
         {showError && (
-          <Alert variant="danger" dismissible onClose={() => setDismissedError(state.loadError)}>
-            Could not load data from the NetPulse server: {state.loadError}
+          <Alert variant="destructive" className="mb-3">
+            <AlertDescription>
+              Could not load data from the NetPulse server: {state.loadError}
+            </AlertDescription>
+            <AlertAction>
+              <Button
+                size="icon-xs"
+                variant="ghost"
+                aria-label="Close alert"
+                onClick={() => setDismissedError(state.loadError)}
+              >
+                <X aria-hidden="true" />
+              </Button>
+            </AlertAction>
           </Alert>
         )}
         {state.stale && (
-          <Alert variant="warning">
-            Lost connection to the NetPulse server — statuses below are stale
+          <Alert className="mb-3 border-amber-500/50 bg-amber-50 text-amber-900 dark:bg-amber-950 dark:text-amber-100">
+            <AlertDescription className="text-current">
+              Lost connection to the NetPulse server — statuses below are stale
+            </AlertDescription>
           </Alert>
         )}
         {devices.length > 0 && (
@@ -84,8 +103,8 @@ export default function App() {
           />
         )}
         <SummaryStrip devices={devices} />
-        <Row className="g-3">
-          <Col lg={8} className={state.stale ? "opacity-50" : undefined}>
+        <div className="grid gap-3 lg:grid-cols-3">
+          <div className={state.stale ? "opacity-50 lg:col-span-2" : "lg:col-span-2"}>
             <DeviceToolbar
               total={devices.length}
               shown={visible.length}
@@ -97,7 +116,7 @@ export default function App() {
               onView={changeView}
             />
             {devices.length > 0 && visible.length === 0 ? (
-              <p className="text-body-secondary">No devices match “{query.trim()}”</p>
+              <p className="text-muted-foreground">No devices match “{query.trim()}”</p>
             ) : view === "list" ? (
               <DeviceList
                 devices={visible}
@@ -109,17 +128,17 @@ export default function App() {
             ) : (
               <DeviceGrid devices={visible} now={now} onOpen={setDetailId} />
             )}
-          </Col>
-          <Col lg={4}>
+          </div>
+          <div>
             <EventLog />
-          </Col>
-        </Row>
-      </Container>
+          </div>
+        </div>
+      </main>
       {detail && !form && (
         <DeviceDetail
           device={detail}
           onClose={() => setDetailId(null)}
-          onEdit={(device) => setForm({ device })}
+          onEdit={(device: unknown) => setForm({ device })}
         />
       )}
       {form && <DeviceForm device={form.device} onSaved={onSaved} onClose={() => setForm(null)} />}

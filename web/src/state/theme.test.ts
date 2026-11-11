@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
 import { applyTheme, readTheme, writeTheme } from "./theme";
 
@@ -32,11 +33,17 @@ describe("readTheme", () => {
 });
 
 describe("applyTheme / writeTheme", () => {
-  it("sets data-bs-theme on the root", () => {
-    const attrs: Record<string, string> = {};
-    const root = { setAttribute: (k: string, v: string) => void (attrs[k] = v) };
+  it("adds the dark class for dark and removes it for light", () => {
+    const root = document.createElement("html");
     applyTheme("dark", root);
-    expect(attrs["data-bs-theme"]).toBe("dark");
+    expect(root.classList.contains("dark")).toBe(true);
+    applyTheme("light", root);
+    expect(root.classList.contains("dark")).toBe(false);
+  });
+  it("a theme stored as dark before the upgrade still yields the dark class", () => {
+    const root = document.createElement("html");
+    applyTheme(readTheme({ storage: storage("dark"), matchMedia: media(false) }), root);
+    expect(root.classList.contains("dark")).toBe(true);
   });
   it("writeTheme does not throw without storage", () => {
     expect(() => writeTheme("dark")).not.toThrow();

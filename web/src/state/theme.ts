@@ -27,9 +27,9 @@ export function readTheme({ storage, matchMedia = systemMatchMedia() }: ReadThem
 
 export function applyTheme(
   theme: Theme,
-  root: Pick<Element, "setAttribute"> | undefined = typeof document === "undefined" ? undefined : document.documentElement,
+  root: Pick<Element, "classList"> | undefined = typeof document === "undefined" ? undefined : document.documentElement,
 ): void {
-  root?.setAttribute("data-bs-theme", theme);
+  root?.classList.toggle("dark", theme === "dark");
 }
 
 export function writeTheme(theme: Theme): void {
