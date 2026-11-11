@@ -46,12 +46,12 @@ describe("axisLabels", () => {
 });
 
 describe("slotVariant", () => {
-  test("maps statuses", () => {
-    expect(slotVariant("UP")).toBe("success");
-    expect(slotVariant("DEGRADED")).toBe("warning");
-    expect(slotVariant("DOWN")).toBe("danger");
-    expect(slotVariant("PAUSED")).toBe("secondary");
-    expect(slotVariant(null)).toBe("secondary");
+  test("maps statuses to Tailwind colour classes", () => {
+    expect(slotVariant("UP")).toBe("bg-emerald-500");
+    expect(slotVariant("DEGRADED")).toBe("bg-amber-500");
+    expect(slotVariant("DOWN")).toBe("bg-red-500");
+    expect(slotVariant("PAUSED")).toBe("bg-zinc-300 dark:bg-zinc-700");
+    expect(slotVariant(null)).toBe("bg-zinc-300 dark:bg-zinc-700");
   });
 });
 

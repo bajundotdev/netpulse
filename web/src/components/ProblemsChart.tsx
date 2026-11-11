@@ -3,11 +3,11 @@ import { memo } from "react";
 const W = 600;
 const H = 120;
 
-function ProblemsChart({ values, label }) {
+function ProblemsChart({ values, label }: { values: number[]; label: string }) {
   const max = Math.max(1, ...values);
   const n = values.length;
-  const x = (i) => (n > 1 ? (i / (n - 1)) * W : 0);
-  const y = (v) => H - (v / max) * (H - 4) - 2;
+  const x = (i: number) => (n > 1 ? (i / (n - 1)) * W : 0);
+  const y = (v: number) => H - (v / max) * (H - 4) - 2;
   const pts = values.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`);
   const line = pts.length ? `M${pts.join(" L")}` : "";
   const area = pts.length ? `${line} L${W},${H} L0,${H} Z` : "";
@@ -20,11 +20,11 @@ function ProblemsChart({ values, label }) {
       role="img"
       aria-label={label}
     >
-      <path d={area} fill="var(--bs-success)" fillOpacity={0.25} stroke="none" />
+      <path d={area} className="fill-emerald-500/25 stroke-none" />
       <path
         d={line}
         fill="none"
-        stroke="var(--bs-success)"
+        className="stroke-emerald-500"
         strokeWidth={2}
         vectorEffect="non-scaling-stroke"
       />

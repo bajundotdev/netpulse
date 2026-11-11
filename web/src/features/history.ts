@@ -1,5 +1,4 @@
 import type { HistoryOut, Range, SlotStatus } from "@/types";
-import type { Variant } from "./format";
 
 const LABELS = {
   UP: "Up",
@@ -8,7 +7,8 @@ const LABELS = {
   PAUSED: "Paused",
 };
 
-const VARIANTS: Record<string, Variant> = { UP: "success", DEGRADED: "warning", DOWN: "danger" };
+const NO_DATA = "bg-zinc-300 dark:bg-zinc-700";
+const SLOT_CLASSES: Record<string, string> = { UP: "bg-emerald-500", DEGRADED: "bg-amber-500", DOWN: "bg-red-500" };
 
 export const RANGE_WORDS: Record<Range, string> = { "1h": "hour", "24h": "24 hours", "7d": "7 days" };
 
@@ -32,7 +32,8 @@ export function slotTitle(startIso: string, bucketSeconds: number, index: number
 
 export const axisLabels = (range: Range): string[] => AXIS[range] ?? AXIS["24h"];
 
-export const slotVariant = (status: SlotStatus): Variant => (status ? VARIANTS[status] : undefined) ?? "secondary";
+// Background colour classes for a slot; the single source for strip and row legends.
+export const slotVariant = (status: SlotStatus): string => (status ? SLOT_CLASSES[status] : undefined) ?? NO_DATA;
 
 // A response is only usable for the range it was fetched for.
 export const historyForRange = (history: HistoryOut | null | undefined, range: Range): HistoryOut | null => (history?.range === range ? history : null);

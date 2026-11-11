@@ -1,17 +1,19 @@
 import { memo } from "react";
 import { slotTitle, slotVariant, stripSummary } from "@/features/history";
+import type { SlotStatus } from "@/types";
 
-const BG = {
-  success: "bg-success",
-  warning: "bg-warning",
-  danger: "bg-danger",
-  secondary: "bg-body-secondary",
+type Props = {
+  slots: SlotStatus[];
+  startIso: string;
+  bucketSeconds: number;
+  rangeLabel: string;
+  height?: number;
 };
 
-function StatusStrip({ slots, startIso, bucketSeconds, rangeLabel, height = 24 }) {
+function StatusStrip({ slots, startIso, bucketSeconds, rangeLabel, height = 24 }: Props) {
   return (
     <div
-      className="np-strip"
+      className="grid gap-0.5"
       style={{ gridTemplateColumns: `repeat(${slots.length}, 1fr)` }}
       role="img"
       aria-label={stripSummary(slots, rangeLabel)}
@@ -19,7 +21,7 @@ function StatusStrip({ slots, startIso, bucketSeconds, rangeLabel, height = 24 }
       {slots.map((status, i) => (
         <div
           key={i}
-          className={`${BG[slotVariant(status)]} rounded-1`}
+          className={`${slotVariant(status)} rounded-xs`}
           style={{ height }}
           title={slotTitle(startIso, bucketSeconds, i, status)}
         />
