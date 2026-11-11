@@ -1,5 +1,9 @@
+import asyncio
+import contextlib
+import logging
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from functools import partial
 
 from fastapi import FastAPI, Request
@@ -23,6 +27,7 @@ from app.infra.repositories import (
     DuplicateNameError,
     EventRepository,
     NotFoundError,
+    StatusHistoryRepository,
 )
 from app.monitoring.factory import CheckerFactory, default_factory
 from app.monitoring.monitor import Monitor
@@ -30,8 +35,14 @@ from app.monitoring.snmp_client import PysnmpClient
 from app.monitoring.status_store import StatusStore
 from app.services.devices import DeviceService, ValidationFailed
 from app.services.events import EventLogWriter, EventService
+from app.services.history import HistoryWriter
 
 WEB_DIST = REPO_ROOT / "web" / "dist"
+
+log = logging.getLogger(__name__)
+
+RETENTION = timedelta(days=30)
+PRUNE_EVERY_S = 3600
 
 
 @dataclass
@@ -46,6 +57,8 @@ class Container:
     broadcaster: SseBroadcaster
     devices: DeviceService
     events: EventService
+    history: StatusHistoryRepository
+    history_writer: HistoryWriter
 
 
 def _build_container(settings: Settings, factory: CheckerFactory | None) -> Container:
@@ -55,11 +68,14 @@ def _build_container(settings: Settings, factory: CheckerFactory | None) -> Cont
     device_repo = DeviceRepository(session_factory, box)
     check_repo = CheckRepository(session_factory)
     event_repo = EventRepository(session_factory)
+    history_repo = StatusHistoryRepository(session_factory)
     db = DbRunner()
 
     bus = EventBus()
     store = StatusStore()
     bus.subscribe("domain_event", EventLogWriter(event_repo, bus, db).handle)
+    history_writer = HistoryWriter(history_repo, db)
+    bus.subscribe("status", history_writer.handle)
     broadcaster = SseBroadcaster()
     for topic in ("status", "result", "event", "devices"):
         bus.subscribe(topic, partial(broadcaster.handle, topic))
@@ -77,7 +93,23 @@ def _build_container(settings: Settings, factory: CheckerFactory | None) -> Cont
         broadcaster=broadcaster,
         devices=DeviceService(device_repo, check_repo, monitor, store, bus, db),
         events=EventService(event_repo, db),
+        history=history_repo,
+        history_writer=history_writer,
     )
+
+
+async def _prune(c: Container) -> None:
+    cutoff = datetime.now(UTC) - RETENTION
+    await c.db(c.history.prune, cutoff)
+
+
+async def _prune_hourly(c: Container) -> None:
+    while True:
+        await asyncio.sleep(PRUNE_EVERY_S)
+        try:
+            await _prune(c)
+        except Exception:
+            log.exception("history prune failed")
 
 
 def create_app(
@@ -92,12 +124,24 @@ def create_app(
     async def lifespan(app: FastAPI):
         c = _build_container(settings, factory)
         app.state.container = c
+        prune_task: asyncio.Task | None = None
         try:
+            await _prune(c)
+            prune_task = asyncio.create_task(_prune_hourly(c))
             if start_monitor:
                 await c.monitor.start(await c.devices.configs())
             yield
         finally:
+            if prune_task is not None:
+                prune_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await prune_task
             await c.monitor.stop()
+            try:
+                devices = await c.devices.list()
+                await c.history_writer.stopped([d.id for d in devices], datetime.now(UTC))
+            except Exception:
+                log.exception("could not record STOPPED history")
             c.db.shutdown()
             c.snmp_client.close()
             c.session_factory.kw["bind"].dispose()

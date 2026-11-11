@@ -1,7 +1,17 @@
 from datetime import UTC, datetime
 from pathlib import Path
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, create_engine, event
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    create_engine,
+    event,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 
@@ -70,6 +80,21 @@ class EventRow(Base):
     status: Mapped[str | None] = mapped_column(String, nullable=True)
     previous_status: Mapped[str | None] = mapped_column(String, nullable=True)
     acknowledged: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class StatusHistoryRow(Base):
+    __tablename__ = "status_history"
+    __table_args__ = (
+        Index("ix_status_history_device_ts", "device_id", "ts"),
+        {"sqlite_autoincrement": True},  # ids order rows that share a timestamp
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    device_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    ts: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
 
 def make_session_factory(db_path: Path) -> sessionmaker:

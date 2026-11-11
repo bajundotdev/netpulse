@@ -1,12 +1,13 @@
-from datetime import UTC
+from datetime import UTC, datetime
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
+from app.domain.history import Transition
 from app.domain.models import CheckConfig, CheckType, DeviceConfig, DomainEvent, SnmpSettings
 from app.infra.crypto import SecretBox
-from app.infra.db import CheckRow, DeviceRow, EventRow
+from app.infra.db import CheckRow, DeviceRow, EventRow, StatusHistoryRow
 
 
 class DuplicateNameError(Exception):
@@ -251,3 +252,98 @@ class EventRepository:
             "previous_status": row.previous_status,
             "acknowledged": row.acknowledged,
         }
+
+
+def _naive_utc(ts: datetime) -> datetime:
+    return ts.astimezone(UTC).replace(tzinfo=None)
+
+
+class StatusHistoryRepository:
+    """Every device status change; timestamps are stored naive UTC and returned aware UTC."""
+
+    def __init__(self, session_factory: sessionmaker):
+        self._sf = session_factory
+
+    def add(self, device_id: int, status: str, ts: datetime) -> None:
+        self.add_many([device_id], status, ts)
+
+    def add_many(self, device_ids: list[int], status: str, ts: datetime) -> None:
+        if not device_ids:
+            return
+        naive = _naive_utc(ts)
+        with self._sf() as s:
+            # A device deleted meanwhile has no history to extend.
+            known = s.scalars(select(DeviceRow.id).where(DeviceRow.id.in_(set(device_ids))))
+            s.add_all(StatusHistoryRow(device_id=i, status=status, ts=naive) for i in sorted(known))
+            s.commit()
+
+    def window_rows(self, start: datetime, end: datetime) -> dict[int, list[Transition]]:
+        """Per device, rows in [start, end] by (ts, id), plus its newest row before start."""
+        lo, hi = _naive_utc(start), _naive_utc(end)
+        newest = (
+            select(
+                StatusHistoryRow.id.label("id"),
+                func.row_number()
+                .over(
+                    partition_by=StatusHistoryRow.device_id,
+                    order_by=(StatusHistoryRow.ts.desc(), StatusHistoryRow.id.desc()),
+                )
+                .label("rn"),
+            )
+            .where(StatusHistoryRow.ts < lo)
+            .subquery()
+        )
+        before_start = select(newest.c.id).where(newest.c.rn == 1)
+        stmt = (
+            select(StatusHistoryRow)
+            .where(
+                StatusHistoryRow.ts <= hi,
+                (StatusHistoryRow.ts >= lo) | StatusHistoryRow.id.in_(before_start),
+            )
+            .order_by(StatusHistoryRow.ts, StatusHistoryRow.id)
+        )
+        out: dict[int, list[Transition]] = {}
+        with self._sf() as s:
+            for r in s.scalars(stmt):
+                out.setdefault(r.device_id, []).append((r.ts.replace(tzinfo=UTC), r.status))
+        return out
+
+    def problem_entries_since(self, since: datetime) -> int:
+        """Rows since `since` that enter DOWN/DEGRADED from a different (or no) previous status."""
+        ranked = select(
+            StatusHistoryRow.ts.label("ts"),
+            StatusHistoryRow.status.label("status"),
+            func.lag(StatusHistoryRow.status)
+            .over(
+                partition_by=StatusHistoryRow.device_id,
+                order_by=(StatusHistoryRow.ts, StatusHistoryRow.id),
+            )
+            .label("prev"),
+        ).subquery()
+        stmt = (
+            select(func.count())
+            .select_from(ranked)
+            .where(
+                ranked.c.ts >= _naive_utc(since),
+                ranked.c.status.in_(("DOWN", "DEGRADED")),
+                (ranked.c.prev.is_(None)) | (ranked.c.prev != ranked.c.status),
+            )
+        )
+        with self._sf() as s:
+            return s.scalar(stmt) or 0
+
+    def prune(self, cutoff: datetime) -> int:
+        """Delete rows older than cutoff, keeping each device's newest such row."""
+        naive = _naive_utc(cutoff)
+        newest_old = (
+            select(func.max(StatusHistoryRow.id))
+            .where(StatusHistoryRow.ts < naive)
+            .group_by(StatusHistoryRow.device_id)
+        )
+        stmt = delete(StatusHistoryRow).where(
+            StatusHistoryRow.ts < naive, StatusHistoryRow.id.not_in(newest_old)
+        )
+        with self._sf() as s:
+            result = s.execute(stmt)
+            s.commit()
+            return result.rowcount
