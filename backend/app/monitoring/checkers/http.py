@@ -15,6 +15,7 @@ from app.domain.models import CheckResult, CheckType
 MAX_BODY_BYTES = 1024 * 1024
 DEFAULT_SLOW_MS = 2000
 USER_AGENT = "NetPulse/1.0"
+MAX_SHOWN_CHARS = 80  # longest JSON value quoted in a failure reason
 
 
 class _Missing:
@@ -380,6 +381,9 @@ class HttpChecker:
                 return f"json: {spec['path']} is not valid JSON"
             actual = json_lookup(doc, spec["path"])
             if not json_compare(actual, spec.get("op", "=="), spec.get("value")):
-                shown = "missing" if actual is MISSING else actual
+                shown = "missing" if actual is MISSING else str(actual)
+                if len(shown) > MAX_SHOWN_CHARS:
+                    # The reason travels into results, SSE and the event log: keep it short.
+                    shown = shown[:MAX_SHOWN_CHARS] + "…"
                 return f"json: {spec['path']} is {shown}"
         return None

@@ -473,3 +473,13 @@ async def test_header_value_with_inner_spaces_is_sent(loopback):
     params = {"url": url, "auth": {"type": "header", "header_name": "X-Key"}}
     r = await HttpChecker(params, "a b  c", pool).check("h", 2000)
     assert r.ok and b"X-Key: a b  c\r\n" in hits[0]
+
+
+async def test_json_reason_truncates_a_huge_actual_value(make):
+    big = "x" * 500_000
+    params = {"json": {"path": "data.blob", "op": "==", "value": "small"}}
+    r = await make(respond(json={"data": {"blob": big}}), params).check("h", 1000)
+    assert not r.ok
+    assert r.reason == f"json: data.blob is {'x' * 80}…"
+    short = await make(respond(json={"data": {"blob": "x" * 80}}), params).check("h", 1000)
+    assert short.reason == f"json: data.blob is {'x' * 80}"

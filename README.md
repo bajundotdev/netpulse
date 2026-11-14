@@ -85,11 +85,11 @@ opens <http://localhost:8765> (or the port in `NETPULSE_PORT`). If the browser o
 the server is ready, refresh. If the dependency install fails (for example no internet),
 fix the cause and run `run.bat` again: it retries the install until one succeeds.
 
-After pulling a new version, back up `data\` first, then run `run.bat` as usual: it reinstalls
-the Python dependencies when `backend\requirements.txt` changed and rebuilds the UI when
-`web\package-lock.json` or the git commit changed (Node.js is needed for that rebuild). Without
-git, only `package-lock.json` is compared; after a source-only update delete `web\dist`
-(`rmdir /s /q web\dist`) so the UI is rebuilt.
+After pulling a new version, back up `data\` first, then run `run.bat` as usual: it
+reinstalls the Python dependencies when `backend\requirements.txt` changed and rebuilds
+the UI when `web\package-lock.json` or the git commit changed (Node.js is needed for that
+rebuild). Without git, only `package-lock.json` is compared; after a source-only update
+delete `web\dist` (`rmdir /s /q web\dist`) so the UI is rebuilt.
 
 To stop, press `Ctrl+C` in the console window or close it.
 
@@ -213,9 +213,14 @@ network gear prefer **SNMP v3 with authPriv**; v2c sends the community in clear 
 ### HTTPS, internal CAs and proxies
 
 - Certificates are verified against the Windows certificate store. A site signed by your
-  domain CA therefore verifies on a domain-joined PC without skipping verification.
+  domain CA therefore verifies on a domain-joined PC without skipping verification. When
+  `SSL_CERT_FILE` or `SSL_CERT_DIR` is set, that file or folder is used instead of the
+  Windows store.
 - Switching **Verify TLS** off on a check only skips verification. NetPulse still reads
   the certificate expiry.
+- Certificate warnings are remembered in memory only. After a restart of NetPulse, or an
+  edit of the device, a certificate that is already inside the warning window is reported
+  once more: a reminder, not a new problem.
 - `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY` are honoured for the HTTP requests. A
   website's liveness request looks up the name itself (or leaves that to the proxy), so a
   site whose name only resolves through the proxy can still be `UP`.
@@ -232,9 +237,10 @@ network gear prefer **SNMP v3 with authPriv**; v2c sends the community in clear 
   HTTP headers are stored unencrypted: put tokens in *Auth*, not in headers.
 
 Back them up **together**. If you lose `secret.key`, a new key is made on the next start
-and the stored SNMP communities and keys can no longer be read: NetPulse still starts,
-logs a warning, shows those secrets as not set, and you must re-enter them. The key sits beside the database, so the PC
-itself is the trust boundary: do not copy `data/` to shared locations. Secrets are
+and the stored SNMP communities and keys and the HTTP auth secrets (tokens, passwords,
+header values) can no longer be read: NetPulse still starts, logs a warning, shows those
+secrets as not set, and you must re-enter them. The key sits beside the database, so the
+PC itself is the trust boundary: do not copy `data/` to shared locations. Secrets are
 write-only through the API and never logged.
 
 On start, NetPulse adds any new columns to an older `netpulse.db` automatically and keeps
@@ -260,8 +266,8 @@ devices, history and the key.
 ## Security
 
 Single user on localhost, so there is no authentication. The server binds to `127.0.0.1`
-by default. SNMP and HTTP auth secrets are encrypted at rest (Fernet) and never returned by the API or
-written to logs; HTTP auth secrets are write-only in the same way. Prefer SNMP v3 authPriv over v2c.
+by default. SNMP and HTTP auth secrets are encrypted at rest (Fernet), write-only through
+the API and never written to logs. Prefer SNMP v3 authPriv over v2c.
 
 ## Known risks
 
@@ -298,4 +304,7 @@ automated tests. Run them once before relying on NetPulse:
       the event log.
 - [ ] A wrong keyword turns the device `DEGRADED`.
 - [ ] Upgrading with an existing `data/` keeps all devices, checks, events and history.
+- [ ] On a PC running the previous version, `git pull` then `run.bat`: it says "Updating
+      the Python dependencies..." and "Rebuilding the web UI...", then starts; run it again
+      and it starts straight away.
 - [ ] `npm test` in `web/` passes (the schema drift test needs network once, for `npx`).
