@@ -85,6 +85,12 @@ opens <http://localhost:8765> (or the port in `NETPULSE_PORT`). If the browser o
 the server is ready, refresh. If the dependency install fails (for example no internet),
 fix the cause and run `run.bat` again: it retries the install until one succeeds.
 
+After pulling a new version, back up `data\` first, then run `run.bat` as usual: it reinstalls
+the Python dependencies when `backend\requirements.txt` changed and rebuilds the UI when
+`web\package-lock.json` or the git commit changed (Node.js is needed for that rebuild). Without
+git, only `package-lock.json` is compared; after a source-only update delete `web\dist`
+(`rmdir /s /q web\dist`) so the UI is rebuilt.
+
 To stop, press `Ctrl+C` in the console window or close it.
 
 Manual start, from the repository root:
