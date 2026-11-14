@@ -18,6 +18,7 @@ from app.domain.models import (
 )
 from app.domain.state import DeviceState, next_state, paused_state
 from app.infra.bus import EventBus
+from app.monitoring.checkers.http import check_error_reason
 from app.monitoring.factory import CheckerFactory
 from app.monitoring.resolve import ResolveError, resolve_host
 from app.monitoring.status_store import StatusStore
@@ -155,19 +156,30 @@ class Monitor:
         except TimeoutError:
             result = CheckResult(check.type, _liveness_label(check), False, reason="timeout")
         except Exception as e:
-            result = CheckResult(check.type, _liveness_label(check), False, reason=f"error: {e}")
+            # A check with a secret never lets exception text through unfiltered (it can embed
+            # the request headers): same opaque/scrub policy as the HTTP checker.
+            reason = (
+                check_error_reason(e, check.params, check.secret)
+                if check.secret
+                else f"error: {e}"
+            )
+            result = CheckResult(check.type, _liveness_label(check), False, reason=reason)
         if result.check_id is None:
             result.check_id = check.id
         return result
 
+    async def _resolve(self, device: DeviceConfig) -> str:
+        # Bounded: a hung DNS server must not stall the cycle (getaddrinfo cannot be cancelled,
+        # but the cycle stops waiting for it). Raises ResolveError or TimeoutError.
+        return await asyncio.wait_for(self._resolver(device.host), device.timeout_ms / 1000 + 1)
+
     async def _run_checks(self, device: DeviceConfig) -> list[CheckResult]:
         liveness_cfg = device.liveness_check()
+        others = [c for c in device.checks if c.enabled]
+        if liveness_cfg.type is CheckType.HTTP:
+            return await self._run_http_liveness(device, liveness_cfg, others)
         try:
-            # Bounded: a hung DNS server must not stall the cycle (getaddrinfo cannot be cancelled,
-            # but the cycle stops waiting for it).
-            host = await asyncio.wait_for(
-                self._resolver(device.host), device.timeout_ms / 1000 + 1
-            )
+            host = await self._resolve(device)
         except (ResolveError, TimeoutError):
             return [
                 CheckResult(
@@ -177,8 +189,32 @@ class Monitor:
         liveness = await self._run_one(liveness_cfg, device, host)
         if not liveness.ok:
             return [liveness]
-        others = [c for c in device.checks if c.enabled]
         rest = await asyncio.gather(*(self._run_one(c, device, host) for c in others))
+        return [liveness, *rest]
+
+    async def _run_http_liveness(
+        self, device: DeviceConfig, liveness_cfg: CheckConfig, others: list[CheckConfig]
+    ) -> list[CheckResult]:
+        """HTTP liveness skips the local pre-resolve: the HTTP checker resolves the URL itself, or
+        sends it through HTTPS_PROXY where external names only resolve at the proxy. Only the
+        other kinds of checks (TCP, SNMP) still need the address, resolved after liveness."""
+        liveness = await self._run_one(liveness_cfg, device, device.host)
+        if not liveness.ok:
+            return [liveness]
+        host: str | None = device.host
+        if any(c.type is not CheckType.HTTP for c in others):
+            try:
+                host = await self._resolve(device)
+            except (ResolveError, TimeoutError):
+                host = None
+
+        async def run(check: CheckConfig) -> CheckResult:
+            if host is None and check.type is not CheckType.HTTP:
+                label = _liveness_label(check)
+                return CheckResult(check.type, label, False, reason="dns", check_id=check.id)
+            return await self._run_one(check, device, host or device.host)
+
+        rest = await asyncio.gather(*(run(c) for c in others))
         return [liveness, *rest]
 
     async def test(self, device: DeviceConfig) -> list[CheckResult]:
@@ -205,8 +241,17 @@ class Monitor:
             await self._publish_change(device.id, prev, state, event)
         checks = [c for c in device.checks if c.enabled]
         for check, result in zip(checks, others):
+            if check.type is CheckType.HTTP:
+                continue  # certificates are handled together below
             for ev in self._tracker.observe(device.id, device.name, check, result):
                 await self._bus.publish("domain_event", ev)
+        # Liveness included: an expired certificate fails it before any other check can run.
+        cert_items = [(c, r) for c, r in zip(checks, others) if c.type is CheckType.HTTP]
+        if device.liveness_check().type is CheckType.HTTP:
+            cert_items.append((device.liveness_check(), liveness))
+        http_configs = [c for c in checks if c.type is CheckType.HTTP]
+        for ev in self._tracker.observe_certs(device.id, device.name, cert_items, http_configs):
+            await self._bus.publish("domain_event", ev)
         await self._bus.publish(
             "result",
             {

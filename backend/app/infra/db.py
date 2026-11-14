@@ -14,6 +14,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
+from app.infra.migrate import migrate
+
 
 def _utcnow() -> datetime:
     # SQLite drops tzinfo, so naive UTC is stored and UTC is re-attached on read.
@@ -45,6 +47,7 @@ class DeviceRow(Base):
     snmp_auth_key_enc: Mapped[str | None] = mapped_column(String, nullable=True)
     snmp_priv_proto: Mapped[str] = mapped_column(String, default="none")
     snmp_priv_key_enc: Mapped[str | None] = mapped_column(String, nullable=True)
+    url: Mapped[str | None] = mapped_column(String, nullable=True)
     notes: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
@@ -61,6 +64,7 @@ class CheckRow(Base):
     type: Mapped[str] = mapped_column(String, nullable=False)
     params: Mapped[dict] = mapped_column(JSON, default=dict)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    secret_enc: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
 
@@ -109,4 +113,5 @@ def make_session_factory(db_path: Path) -> sessionmaker:
         cursor.close()
 
     Base.metadata.create_all(engine)
+    migrate(engine)
     return sessionmaker(engine, expire_on_commit=False)

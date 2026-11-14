@@ -102,3 +102,90 @@ def test_forget_resets_baseline():
 )
 def test_breaches(op, thr, val, expected):
     assert breaches(op, thr, val) is expected
+
+
+# --- certificate expiry -------------------------------------------------------
+
+URL_CHECK = CheckConfig(
+    7, CheckType.HTTP, {"url": "https://sts.example.ph/adfs", "cert_warn_days": 14}
+)
+
+
+def cert_res(days, check=URL_CHECK, ok=True) -> CheckResult:
+    value = {"status_code": 200, "elapsed_ms": 5, "cert_expires": "x", "cert_days": days,
+             "final_url": "https://sts.example.ph/adfs"}
+    return CheckResult(check.type, "GET /adfs", ok, check_id=check.id, value=value)
+
+
+def test_cert_crossing_warns_once_then_quiet():
+    t = ChangeTracker()
+    assert t.observe(1, "DC01", URL_CHECK, cert_res(30)) == []
+    assert t.observe(1, "DC01", URL_CHECK, cert_res(15)) == []
+    [ev] = t.observe(1, "DC01", URL_CHECK, cert_res(14))
+    assert ev.severity is Severity.WARNING and ev.kind is EventKind.CERT_EXPIRY
+    assert ev.message == "DC01 cert for sts.example.ph expires in 14 days"
+    assert ev.check_id == 7 and ev.device_id == 1
+    assert t.observe(1, "DC01", URL_CHECK, cert_res(13)) == []
+    assert t.observe(1, "DC01", URL_CHECK, cert_res(2)) == []
+
+
+def test_cert_expired_is_critical_once():
+    t = ChangeTracker()
+    t.observe(1, "DC01", URL_CHECK, cert_res(30))
+    [ev] = t.observe(1, "DC01", URL_CHECK, cert_res(-1, ok=False))
+    assert ev.severity is Severity.CRITICAL
+    assert ev.message == "DC01 cert for sts.example.ph expired"
+    assert t.observe(1, "DC01", URL_CHECK, cert_res(-2, ok=False)) == []
+
+
+def test_cert_renewal_is_info_then_new_crossing_fires_again():
+    t = ChangeTracker()
+    t.observe(1, "DC01", URL_CHECK, cert_res(10))
+    [ev] = t.observe(1, "DC01", URL_CHECK, cert_res(89))
+    assert ev.severity is Severity.INFO
+    assert ev.message == "DC01 cert for sts.example.ph renewed (89 days)"
+    assert t.observe(1, "DC01", URL_CHECK, cert_res(88)) == []
+    [again] = t.observe(1, "DC01", URL_CHECK, cert_res(5))
+    assert again.severity is Severity.WARNING
+
+
+def test_cert_unknown_days_and_http_urls_are_ignored():
+    t = ChangeTracker()
+    t.observe(1, "DC01", URL_CHECK, cert_res(30))
+    assert t.observe(1, "DC01", URL_CHECK, cert_res(None)) == []
+    # unknown does not reset the baseline: still ok -> warn fires once
+    assert len(t.observe(1, "DC01", URL_CHECK, cert_res(3))) == 1
+    plain = CheckConfig(8, CheckType.HTTP, {"url": "http://plain.example/"})
+    assert t.observe(1, "DC01", plain, cert_res(3, check=plain)) == []
+
+
+def test_cert_default_threshold_and_zero_threshold():
+    default = CheckConfig(9, CheckType.HTTP, {"url": "https://a.example/"})
+    t = ChangeTracker()
+    t.observe(1, "W", default, cert_res(40, default))
+    assert len(t.observe(1, "W", default, cert_res(14, default))) == 1
+    zero = CheckConfig(10, CheckType.HTTP, {"url": "https://a.example/", "cert_warn_days": 0})
+    t2 = ChangeTracker()
+    t2.observe(1, "W", zero, cert_res(5, zero))
+    assert t2.observe(1, "W", zero, cert_res(1, zero)) == []
+    assert len(t2.observe(1, "W", zero, cert_res(0, zero))) == 1
+
+
+def test_cert_forget_rebaselines():
+    t = ChangeTracker()
+    t.observe(1, "DC01", URL_CHECK, cert_res(5))
+    t.forget(1)
+    assert len(t.observe(1, "DC01", URL_CHECK, cert_res(5))) == 1
+
+
+def test_cert_threshold_comes_from_configs_not_from_the_results_seen():
+    """Only the liveness result (no check id) is seen during an outage; the zone holds."""
+    liveness = CheckConfig(None, CheckType.HTTP, {"url": "https://sts.example.ph/"})
+    explicit = CheckConfig(7, CheckType.HTTP, {"url": "https://sts.example.ph/a", "cert_warn_days": 30})
+    other_host = CheckConfig(8, CheckType.HTTP, {"url": "https://other.example/", "cert_warn_days": 2})
+    t = ChangeTracker()
+    [warn] = t.observe_certs(1, "STS", [(explicit, cert_res(20, explicit))], [explicit, other_host])
+    assert warn.severity is Severity.WARNING and warn.check_id == 7
+    assert t.observe_certs(1, "STS", [(liveness, cert_res(20, liveness))], [explicit, other_host]) == []
+    # without configs the liveness result alone falls back to the default threshold
+    assert len(ChangeTracker().observe_certs(1, "STS", [(liveness, cert_res(14, liveness))])) == 1

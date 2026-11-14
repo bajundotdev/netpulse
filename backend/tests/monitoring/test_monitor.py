@@ -496,3 +496,216 @@ async def test_start_passes_last_known_statuses():
         assert bus.of("domain_event") == []
     finally:
         await mon.stop()
+
+
+async def test_error_wrapper_scrubs_secret_of_the_check():
+    import base64
+
+    token = base64.b64encode(b"svc:hunter2").decode()
+    factory = CheckerFactory()
+    factory.register(
+        CheckType.HTTP,
+        lambda c, d: FakeChecker([RuntimeError(f"bad hunter2 and {token}")]),
+    )
+    factory.register(CheckType.PING, lambda c, d: FakeChecker([ok()]))
+    mon = Monitor(factory, StatusStore(), RecordingBus(), resolver=fake_resolver)
+    check = CheckConfig(
+        1, CheckType.HTTP, {"url": "https://a/", "auth": {"type": "basic", "username": "svc"}},
+        secret="hunter2",
+    )
+    dev = DeviceConfig(id=1, name="W", host="h", checks=(check,))
+    results = await mon.test(dev)
+    reason = results[1].reason
+    assert "hunter2" not in reason and token not in reason and reason.startswith("error:")
+
+
+async def test_error_wrapper_hides_text_of_opaque_errors_with_secret():
+    factory = CheckerFactory()
+    factory.register(CheckType.HTTP, lambda c, d: FakeChecker([ValueError("Bearer hunter2")]))
+    factory.register(CheckType.PING, lambda c, d: FakeChecker([ok()]))
+    mon = Monitor(factory, StatusStore(), RecordingBus(), resolver=fake_resolver)
+    check = CheckConfig(1, CheckType.HTTP, {"url": "https://a/"}, secret="hunter2")
+    [_, r] = await mon.test(DeviceConfig(id=1, name="W", host="h", checks=(check,)))
+    assert r.reason == "error: ValueError"
+
+
+def test_check_config_repr_hides_secret():
+    check = CheckConfig(1, CheckType.HTTP, {"url": "https://a/"}, secret="hunter2")
+    assert "hunter2" not in repr(check) and "hunter2" not in repr(
+        DeviceConfig(id=1, name="W", host="h", checks=(check,))
+    )
+
+
+# --- certificate events at monitor level --------------------------------------
+
+class CertChecker:
+    """HTTP checker stand-in whose certificate days come from a shared box."""
+
+    def __init__(self, box, ok_=True):
+        self.box, self.ok_ = box, ok_
+
+    async def check(self, host, timeout_ms):
+        days = self.box["days"]
+        value = {"status_code": 200, "elapsed_ms": 1, "cert_expires": "x", "cert_days": days,
+                 "final_url": "https://sts.example.ph/"}
+        if not self.box.get("up", True):  # outage: the site answers 503, certificate still read
+            return CheckResult(CheckType.HTTP, "GET /", False, latency_ms=1.0,
+                               reason="status 503", value=value)
+        ok_ = days >= 0
+        return CheckResult(CheckType.HTTP, "GET /", ok_, latency_ms=1.0,
+                           reason=None if ok_ else "tls: certificate has expired", value=value)
+
+
+def cert_monitor(box):
+    factory = CheckerFactory()
+    factory.register(CheckType.HTTP, lambda c, d: CertChecker(box))
+    bus = RecordingBus()
+    return Monitor(factory, StatusStore(), bus, resolver=fake_resolver), bus
+
+
+def cert_events(bus):
+    return [(e.severity, e.message) for e in bus.of("domain_event") if e.kind is EventKind.CERT_EXPIRY]
+
+
+WEB = dict(id=1, name="STS", host="sts.example.ph", kind="web", liveness="http",
+           url="https://sts.example.ph/", fail_threshold=1)
+
+
+async def test_expired_cert_on_liveness_only_device_fires_one_critical():
+    box = {"days": -3}
+    mon, bus = cert_monitor(box)
+    dev = DeviceConfig(**WEB)
+    for _ in range(3):
+        await mon.run_cycle(dev)
+    assert cert_events(bus) == [(Severity.CRITICAL, "STS cert for sts.example.ph expired")]
+
+
+async def test_liveness_and_explicit_check_share_one_warning():
+    box = {"days": 40}
+    mon, bus = cert_monitor(box)
+    check = CheckConfig(5, CheckType.HTTP, {"url": "https://sts.example.ph/x", "cert_warn_days": 30})
+    dev = DeviceConfig(**WEB, checks=(check,))
+    await mon.run_cycle(dev)
+    box["days"] = 12
+    for _ in range(4):
+        await mon.run_cycle(dev)
+    assert cert_events(bus) == [(Severity.WARNING, "STS cert for sts.example.ph expires in 12 days")]
+    [ev] = [e for e in bus.of("domain_event") if e.kind is EventKind.CERT_EXPIRY]
+    assert ev.check_id == 5
+
+
+async def test_smallest_warn_threshold_of_explicit_checks_wins():
+    box = {"days": 20}
+    mon, bus = cert_monitor(box)
+    checks = (
+        CheckConfig(5, CheckType.HTTP, {"url": "https://sts.example.ph/a", "cert_warn_days": 30}),
+        CheckConfig(6, CheckType.HTTP, {"url": "https://sts.example.ph/b", "cert_warn_days": 10}),
+    )
+    dev = DeviceConfig(**WEB, checks=checks)
+    await mon.run_cycle(dev)
+    assert cert_events(bus) == []
+    box["days"] = 9
+    await mon.run_cycle(dev)
+    assert len(cert_events(bus)) == 1
+
+
+async def test_renewal_fires_info_once():
+    box = {"days": -2}
+    mon, bus = cert_monitor(box)
+    dev = DeviceConfig(**WEB)
+    await mon.run_cycle(dev)
+    box["days"] = 89
+    for _ in range(3):
+        await mon.run_cycle(dev)
+    assert cert_events(bus) == [
+        (Severity.CRITICAL, "STS cert for sts.example.ph expired"),
+        (Severity.INFO, "STS cert for sts.example.ph renewed (89 days)"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("warn_days", "cert_days", "before"),
+    [
+        (30, 20, [(Severity.WARNING, "STS cert for sts.example.ph expires in 20 days")]),
+        (7, 10, []),
+    ],
+)
+async def test_outage_keeps_the_explicit_check_threshold(warn_days, cert_days, before):
+    """While liveness fails only its result is seen; the threshold still comes from the configs."""
+    box = {"days": cert_days}
+    mon, bus = cert_monitor(box)
+    check = CheckConfig(
+        5, CheckType.HTTP, {"url": "https://sts.example.ph/x", "cert_warn_days": warn_days}
+    )
+    dev = DeviceConfig(**WEB, checks=(check,))
+    await mon.run_cycle(dev)
+    assert cert_events(bus) == before
+    box["up"] = False
+    for _ in range(3):
+        [liveness] = await mon.run_cycle(dev)
+        assert not liveness.ok
+    box["up"] = True
+    for _ in range(2):
+        await mon.run_cycle(dev)
+    assert cert_events(bus) == before
+
+
+async def test_disabled_check_threshold_does_not_count():
+    box = {"days": 20}
+    mon, bus = cert_monitor(box)
+    check = CheckConfig(
+        5, CheckType.HTTP, {"url": "https://sts.example.ph/x", "cert_warn_days": 30}, enabled=False
+    )
+    await mon.run_cycle(DeviceConfig(**WEB, checks=(check,)))
+    assert cert_events(bus) == []
+
+
+# --- HTTP liveness does its own name resolution (or goes through a proxy) -----
+
+async def unresolvable(host):
+    raise ResolveError(host)
+
+
+async def test_http_liveness_skips_the_local_pre_resolve():
+    """Where external names resolve only through the proxy, the HTTP request still runs."""
+    import httpx2
+
+    from app.monitoring.checkers.http import HttpClientPool
+
+    seen = []
+
+    def handler(request):
+        seen.append(str(request.url))
+        return httpx2.Response(200)
+
+    class NoCert:
+        async def expiry(self, host, port, timeout_ms):
+            return None
+
+    pool = HttpClientPool(transport=httpx2.MockTransport(handler))
+    factory = default_factory(http_pool=pool, cert_reader=NoCert())
+    mon = Monitor(factory, StatusStore(), RecordingBus(), resolver=unresolvable)
+    dev = DeviceConfig(id=1, name="Ext", host="only-via-proxy.example", kind="web",
+                       liveness="http", url="https://only-via-proxy.example/")
+    try:
+        [liveness] = await mon.test(dev)
+    finally:
+        await pool.aclose()
+    assert liveness.ok and liveness.reason is None
+    assert seen == ["https://only-via-proxy.example/"]
+
+
+async def test_http_liveness_non_http_checks_still_resolve_first():
+    factory = CheckerFactory()
+    up = CheckResult(CheckType.HTTP, "GET /", True, latency_ms=5.0)
+    factory.register(CheckType.HTTP, lambda c, d: FakeChecker([up]))
+    tcp = FakeChecker([CheckResult(CheckType.TCP, "tcp/443", True, latency_ms=1.0)])
+    factory.register(CheckType.TCP, lambda c, d: tcp)
+    mon = Monitor(factory, StatusStore(), RecordingBus(), resolver=unresolvable)
+    checks = (CheckConfig(3, CheckType.TCP, {"port": 443}),)
+    dev = DeviceConfig(id=1, name="Ext", host="only-via-proxy.example", kind="web",
+                       liveness="http", url="https://only-via-proxy.example/", checks=checks)
+    liveness, r = await mon.test(dev)
+    assert liveness.ok
+    assert not r.ok and r.reason == "dns" and r.label == "tcp/443" and r.check_id == 3
+    assert tcp.calls == 0

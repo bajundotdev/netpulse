@@ -58,7 +58,9 @@ def next_state(
     now: datetime,
 ) -> tuple[DeviceState, DomainEvent | None]:
     if liveness.ok:
-        failing = [r for r in others if not r.ok]
+        # A slow result is ok but counts as failing for DEGRADED; a slow liveness never counts
+        # toward the DOWN threshold.
+        failing = ([liveness] if liveness.slow else []) + [r for r in others if not r.ok or r.slow]
         if failing:
             detail = ", ".join(f"{r.label} {r.reason or 'failed'}" for r in failing)
             return _transition(
