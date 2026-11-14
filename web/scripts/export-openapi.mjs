@@ -24,6 +24,25 @@ export function backendPython() {
   return path.join(backendDir, ".venv", ...rel);
 }
 
+// One line for a failed schema export instead of a traceback. A missing third-party package
+// means the venv predates a requirements change (run.bat installs it; gen:api does not).
+export function pythonFailure(stderr, platform = process.platform) {
+  const lines = String(stderr ?? "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const last = lines.at(-1) ?? "no error output";
+  const missing = /^ModuleNotFoundError: No module named '([^']+)'/.exec(last);
+  if (missing && missing[1] !== "app" && !missing[1].startsWith("app.")) {
+    const pip =
+      platform === "win32"
+        ? "backend\\.venv\\Scripts\\python -m pip install -r backend\\requirements.txt"
+        : "backend/.venv/bin/python -m pip install -r backend/requirements.txt";
+    return (
+      `the backend environment is missing the Python package '${missing[1]}'. ` +
+      `Install the backend requirements (run run.bat once, or from the project folder: ${pip}) and try again.`
+    );
+  }
+  return `the backend could not export its API schema: ${last}`;
+}
+
 // How to start npx without a shell: its JS entry run by this node, or plain `npx` on POSIX.
 function npxCommand() {
   if (process.platform !== "win32") return ["npx", []];
@@ -42,12 +61,23 @@ export function generateSchema() {
   try {
     const spec = path.join(tmp, "openapi.json");
     const generated = path.join(tmp, "schema.d.ts");
-    const json = execFileSync(
-      python,
-      ["-c", "import json,sys; from app.main import create_app; json.dump(create_app().openapi(), sys.stdout)"],
-      // The app factory is only asked for its schema, but keep any data folder out of the repo.
-      { cwd: backendDir, env: { ...process.env, NETPULSE_DATA_DIR: path.join(tmp, "data") }, maxBuffer: 64 * 1024 * 1024 },
-    );
+    let json;
+    try {
+      json = execFileSync(
+        python,
+        ["-c", "import json,sys; from app.main import create_app; json.dump(create_app().openapi(), sys.stdout)"],
+        // The app factory is only asked for its schema, but keep any data folder out of the repo.
+        // stderr is piped, not inherited, so a failure prints one line rather than the traceback twice.
+        {
+          cwd: backendDir,
+          env: { ...process.env, NETPULSE_DATA_DIR: path.join(tmp, "data") },
+          maxBuffer: 64 * 1024 * 1024,
+          stdio: ["ignore", "pipe", "pipe"],
+        },
+      );
+    } catch (e) {
+      throw new Error(pythonFailure(e.stderr));
+    }
     writeFileSync(spec, json);
     const [cmd, cmdArgs] = npxCommand();
     try {
@@ -58,7 +88,9 @@ export function generateSchema() {
         { cwd: tmp, stdio: ["ignore", "pipe", "pipe"], timeout: NPX_TIMEOUT_MS },
       );
     } catch (e) {
-      if (e.code === "ETIMEDOUT") throw new Error(`npx timed out after ${NPX_TIMEOUT_MS / 1000} s`);
+      if (e.code === "ETIMEDOUT") {
+        throw new Error(`npx timed out after ${NPX_TIMEOUT_MS / 1000} s (its first run needs internet to fetch ${TYPESCRIPT} and ${OPENAPI_TYPESCRIPT})`);
+      }
       const line = String(e.stderr ?? "").split("\n").find((l) => l.trim());
       throw new Error(line?.trim() ?? e.message);
     }

@@ -32,10 +32,7 @@ describe("generated API types", () => {
         } catch (e) {
           const stderr = String((e as { stderr?: unknown }).stderr ?? "").trim();
           const firstLine = stderr.split("\n").find((l) => l.trim()) ?? (e as Error).message;
-          throw new Error(
-            "Could not regenerate schema.d.ts (npx needs network on first run to fetch typescript@5.9.3 " +
-              `+ openapi-typescript@7.13.0): ${firstLine}. Run \`npm run gen:api\` online.`,
-          );
+          throw new Error(`Could not regenerate schema.d.ts: ${firstLine}`);
         }
         const committed = readFileSync(path.join(webDir, "src", "api", "schema.d.ts"), "utf8");
         expect(readFileSync(out, "utf8") === committed).toBe(true);
