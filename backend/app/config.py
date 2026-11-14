@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+_TRUE = frozenset({"1", "true", "yes", "on"})
 
 
 @dataclass
@@ -12,6 +13,9 @@ class Settings:
     data_dir: Path = field(default_factory=lambda: REPO_ROOT / "data")
     # Extra Host names accepted when bound beyond loopback (NETPULSE_ALLOWED_HOSTS, comma list).
     allowed_hosts: tuple[str, ...] = ()
+    # Development aid (NETPULSE_DEBUG=1): API docs at /docs, tracebacks in error responses,
+    # debug logging and the request log. Off by default and always off when run.bat starts it.
+    debug: bool = False
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -25,6 +29,7 @@ class Settings:
                 for h in os.environ.get("NETPULSE_ALLOWED_HOSTS", "").split(",")
                 if h.strip()
             ),
+            debug=os.environ.get("NETPULSE_DEBUG", "").strip().lower() in _TRUE,
         )
 
     @property

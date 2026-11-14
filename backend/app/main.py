@@ -162,7 +162,16 @@ def create_app(
             c.snmp_client.close()
             c.session_factory.kw["bind"].dispose()
 
-    app = FastAPI(title="NetPulse", lifespan=lifespan)
+    # Production (debug off) serves no API docs or schema and no tracebacks in error responses.
+    debug = settings.debug
+    app = FastAPI(
+        title="NetPulse",
+        lifespan=lifespan,
+        debug=debug,
+        docs_url="/docs" if debug else None,
+        redoc_url="/redoc" if debug else None,
+        openapi_url="/openapi.json" if debug else None,
+    )
     hosts = allowed_hosts(settings)
     # Outermost first: an unknown Host (DNS rebinding) is refused before any Origin check.
     app.add_middleware(OriginGuard, origins=allowed_origins(hosts, settings.port))

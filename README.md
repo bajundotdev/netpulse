@@ -77,7 +77,24 @@ by the backend itself, so a normal run needs only one process.
   the first run and again after each update, so keep Node.js installed.
 - No admin rights needed.
 
-## Start and stop
+## Running NetPulse
+
+NetPulse runs in one of two modes. **Production** is how you use it day to day.
+**Development** is for changing the code.
+
+| | Production | Development |
+|---|---|---|
+| Start | `run.bat` | the backend with `NETPULSE_DEBUG=1`, plus `npm run dev` |
+| Open | <http://localhost:8765> | <http://localhost:5173> |
+| Web UI | built into `web\dist` by `run.bat`, served by the backend | Vite dev server, reloads on every save |
+| Debug | **off** (`run.bat` always turns it off) | on |
+| API docs (`/docs`, `/redoc`, `/openapi.json`) | not served | served |
+| Unexpected server error | plain `Internal Server Error` | the traceback, in the response |
+| Console | startup, warnings and errors | also debug messages and one line per request |
+
+## Production (normal use)
+
+### Start and stop
 
 Double-click **`run.bat`**. On the first run it creates `backend\.venv`, installs the
 Python dependencies, builds the UI (`npm ci`, `npm run build`), then starts the server and
@@ -93,7 +110,8 @@ delete `web\dist` (`rmdir /s /q web\dist`) so the UI is rebuilt.
 
 To stop, press `Ctrl+C` in the console window or close it.
 
-Manual start, from the repository root:
+Manual start, from the repository root (debug stays off as long as `NETPULSE_DEBUG` is not
+set; `run.bat` clears it for you):
 
 ```bat
 cd backend
@@ -107,6 +125,7 @@ cd backend
 | `NETPULSE_HOST` | `127.0.0.1` | Address to bind. |
 | `NETPULSE_PORT` | `8765` | Port to listen on. |
 | `NETPULSE_DATA_DIR` | `<repo>/data` | Folder for the database and key. |
+| `NETPULSE_DEBUG` | off | `1`, `true`, `yes` or `on` turns on debug mode (development only, see below). `run.bat` always turns it off. |
 | `NETPULSE_ALLOWED_HOSTS` | (empty) | Extra host names, comma separated, the server answers to when `NETPULSE_HOST` is not a loopback address (for example `netpulse.corp.local`). |
 
 > **Warning:** NetPulse has no login. Keep `NETPULSE_HOST` at `127.0.0.1`. Binding to
@@ -119,25 +138,91 @@ anything else gets `400`. This stops a malicious web page from reaching the API 
 DNS rebinding. Writes (`POST`/`PUT`/`DELETE`) that carry an `Origin` header from any other
 site get `403`.
 
-### Dev mode
+## Development
 
-Run the backend and the Vite dev server side by side (Vite proxies `/api` to the backend):
+Debug mode is for your own machine while you change the code. Never turn it on for normal
+use, and never together with a `NETPULSE_HOST` other than `127.0.0.1`: tracebacks and the
+API docs would be visible to anyone who can reach the port.
 
-```sh
-# terminal 1
-cd backend && .venv/bin/python -m app          # Windows: .venv\Scripts\python -m app
-# terminal 2
-cd web && npm install && npm run dev
+### One-time setup
+
+Same requirements as production. From the repository root:
+
+```bat
+rem Windows (or run run.bat once, which creates backend\.venv)
+py -3 -m venv backend\.venv
+backend\.venv\Scripts\python -m pip install -r backend\requirements-dev.txt
+cd web
+npm install
 ```
 
-Tests: `cd backend && .venv/bin/pytest` and `cd web && npm test`.
-Frontend checks, from `web/`: `npm run lint` (Oxlint) and `npm run typecheck` (TypeScript).
-`npm run gen:api` regenerates `src/api/schema.d.ts` from the backend's OpenAPI schema.
-It needs `backend/.venv`, and network access on the first run, because it fetches
-pinned `typescript@5.9.3` and `openapi-typescript@7.13.0` through `npx`. Run it after you
-change an API model and commit the result: the frontend test fails if the committed
-file is stale.
-CPU budget check (no network used): `cd backend && .venv/bin/python scripts/perf_check.py`.
+```sh
+# macOS / Linux
+python3 -m venv backend/.venv
+backend/.venv/bin/python -m pip install -r backend/requirements-dev.txt
+cd web && npm install
+```
+
+`requirements-dev.txt` is the app's requirements plus the test tools. Run the install again
+after pulling a change to either file.
+
+### Run in development mode
+
+Two terminals. First the backend, in debug mode:
+
+```powershell
+# Windows PowerShell, from backend\
+$env:NETPULSE_DEBUG = "1"
+.venv\Scripts\python -m app
+```
+
+```bat
+rem Windows Command Prompt, from backend\
+set NETPULSE_DEBUG=1
+.venv\Scripts\python -m app
+```
+
+```sh
+# macOS / Linux, from backend/
+NETPULSE_DEBUG=1 .venv/bin/python -m app
+```
+
+It prints a warning that debug mode is on. Then the web UI, from `web/`:
+
+```sh
+npm run dev
+```
+
+Open <http://localhost:5173>. Vite forwards `/api` to the backend at `127.0.0.1:8765`, so
+keep the backend on the default port. Changes to the UI show up as soon as you save. After
+a backend change, stop the backend with `Ctrl+C` and start it again. The API docs are at
+<http://localhost:8765/docs>.
+
+The backend uses the same `data` folder as production. To keep test devices out of it, set
+`NETPULSE_DATA_DIR` to another folder before starting the backend, for example
+`$env:NETPULSE_DATA_DIR = "$PWD\..\data\dev"` in PowerShell or
+`NETPULSE_DATA_DIR=../data/dev` on macOS / Linux (git ignores everything under `data`).
+
+In PowerShell and Command Prompt, `NETPULSE_DEBUG` stays set in that window until you close
+it. Use a fresh window, or `run.bat`, to go back to production mode.
+
+### Try the production build locally
+
+From `web/`, run `npm run build`. Then start the backend **without** `NETPULSE_DEBUG` and open
+<http://localhost:8765>: the backend serves the built UI exactly as `run.bat` does.
+
+### Tests and checks
+
+- Backend tests: `cd backend && .venv/bin/pytest` (Windows: `.venv\Scripts\pytest`).
+- Frontend tests: `cd web && npm test`.
+- Frontend checks, from `web/`: `npm run lint` (Oxlint) and `npm run typecheck` (TypeScript).
+- `npm run gen:api` regenerates `src/api/schema.d.ts` from the backend's OpenAPI schema.
+  It needs `backend/.venv` with the current requirements, and network access on the first
+  run, because it fetches pinned `typescript@5.9.3` and `openapi-typescript@7.13.0` through
+  `npx`. Run it after you change an API model and commit the result: the frontend test
+  fails if the committed file is stale. It works in either mode, because it builds the
+  schema directly rather than downloading `/openapi.json`.
+- CPU budget check (no network used): `cd backend && .venv/bin/python scripts/perf_check.py`.
 
 ## Using it
 
@@ -260,6 +345,8 @@ devices, history and the key.
 - **Port already in use:** set `NETPULSE_PORT` to another value.
 - **`run.bat` says Node.js is needed:** install Node 22 LTS (20.19+) and run `run.bat`
   again. It is needed whenever the UI has to be rebuilt: the first run and after each update.
+- **`/docs` shows `404 Not Found`:** the API docs are only served in debug mode, see
+  [Development](#development).
 - **`400 Invalid host header`:** you opened NetPulse by a name it does not know. Use
   `http://localhost:8765`, or add the name to `NETPULSE_ALLOWED_HOSTS` when bound to a LAN
   address.
@@ -268,7 +355,8 @@ devices, history and the key.
 
 Single user on localhost, so there is no authentication. The server binds to `127.0.0.1`
 by default. SNMP and HTTP auth secrets are encrypted at rest (Fernet), write-only through
-the API and never written to logs. Prefer SNMP v3 authPriv over v2c.
+the API and never written to logs. Prefer SNMP v3 authPriv over v2c. Production runs with
+debug mode off: no API docs and no tracebacks in error responses (`run.bat` enforces it).
 
 ## Known risks
 
@@ -295,6 +383,7 @@ automated tests. Run them once before relying on NetPulse:
 - [ ] SNMP against a real Windows Server and a network device: uptime, interface and OID
       values appear; reboot the Windows host and see a `reboot` event.
 - [ ] Browser notification, beep and flashing tab title fire on a `DOWN` event.
+- [ ] Started with `run.bat`, <http://localhost:8765/docs> shows `404 Not Found` (debug is off).
 - [ ] CPU under 5 % with 50 ping devices.
 - [ ] A switch with 50+ interfaces: the interfaces check finishes under the timeout (no
       `interfaces timeout` and no `DEGRADED` from it).
