@@ -168,14 +168,18 @@ class Monitor:
             result.check_id = check.id
         return result
 
+    async def _resolve(self, device: DeviceConfig) -> str:
+        # Bounded: a hung DNS server must not stall the cycle (getaddrinfo cannot be cancelled,
+        # but the cycle stops waiting for it). Raises ResolveError or TimeoutError.
+        return await asyncio.wait_for(self._resolver(device.host), device.timeout_ms / 1000 + 1)
+
     async def _run_checks(self, device: DeviceConfig) -> list[CheckResult]:
         liveness_cfg = device.liveness_check()
+        others = [c for c in device.checks if c.enabled]
+        if liveness_cfg.type is CheckType.HTTP:
+            return await self._run_http_liveness(device, liveness_cfg, others)
         try:
-            # Bounded: a hung DNS server must not stall the cycle (getaddrinfo cannot be cancelled,
-            # but the cycle stops waiting for it).
-            host = await asyncio.wait_for(
-                self._resolver(device.host), device.timeout_ms / 1000 + 1
-            )
+            host = await self._resolve(device)
         except (ResolveError, TimeoutError):
             return [
                 CheckResult(
@@ -185,8 +189,32 @@ class Monitor:
         liveness = await self._run_one(liveness_cfg, device, host)
         if not liveness.ok:
             return [liveness]
-        others = [c for c in device.checks if c.enabled]
         rest = await asyncio.gather(*(self._run_one(c, device, host) for c in others))
+        return [liveness, *rest]
+
+    async def _run_http_liveness(
+        self, device: DeviceConfig, liveness_cfg: CheckConfig, others: list[CheckConfig]
+    ) -> list[CheckResult]:
+        """HTTP liveness skips the local pre-resolve: the HTTP checker resolves the URL itself, or
+        sends it through HTTPS_PROXY where external names only resolve at the proxy. Only the
+        other kinds of checks (TCP, SNMP) still need the address, resolved after liveness."""
+        liveness = await self._run_one(liveness_cfg, device, device.host)
+        if not liveness.ok:
+            return [liveness]
+        host: str | None = device.host
+        if any(c.type is not CheckType.HTTP for c in others):
+            try:
+                host = await self._resolve(device)
+            except (ResolveError, TimeoutError):
+                host = None
+
+        async def run(check: CheckConfig) -> CheckResult:
+            if host is None and check.type is not CheckType.HTTP:
+                label = _liveness_label(check)
+                return CheckResult(check.type, label, False, reason="dns", check_id=check.id)
+            return await self._run_one(check, device, host or device.host)
+
+        rest = await asyncio.gather(*(run(c) for c in others))
         return [liveness, *rest]
 
     async def test(self, device: DeviceConfig) -> list[CheckResult]:

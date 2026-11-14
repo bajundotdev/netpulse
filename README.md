@@ -216,7 +216,12 @@ network gear prefer **SNMP v3 with authPriv**; v2c sends the community in clear 
   domain CA therefore verifies on a domain-joined PC without skipping verification.
 - Switching **Verify TLS** off on a check only skips verification. NetPulse still reads
   the certificate expiry.
-- `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY` are honoured.
+- `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY` are honoured for the HTTP requests. A
+  website's liveness request looks up the name itself (or leaves that to the proxy), so a
+  site whose name only resolves through the proxy can still be `UP`.
+- The certificate expiry is read with a separate, direct connection to the site. Behind a
+  proxy, on a PC without direct access, the certificate days may therefore be missing (no
+  certificate chip and no certificate events); the checks themselves still work.
 
 ## Data, backup and reset
 

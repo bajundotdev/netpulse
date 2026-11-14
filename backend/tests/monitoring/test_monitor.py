@@ -658,3 +658,54 @@ async def test_disabled_check_threshold_does_not_count():
     )
     await mon.run_cycle(DeviceConfig(**WEB, checks=(check,)))
     assert cert_events(bus) == []
+
+
+# --- HTTP liveness does its own name resolution (or goes through a proxy) -----
+
+async def unresolvable(host):
+    raise ResolveError(host)
+
+
+async def test_http_liveness_skips_the_local_pre_resolve():
+    """Where external names resolve only through the proxy, the HTTP request still runs."""
+    import httpx2
+
+    from app.monitoring.checkers.http import HttpClientPool
+
+    seen = []
+
+    def handler(request):
+        seen.append(str(request.url))
+        return httpx2.Response(200)
+
+    class NoCert:
+        async def expiry(self, host, port, timeout_ms):
+            return None
+
+    pool = HttpClientPool(transport=httpx2.MockTransport(handler))
+    factory = default_factory(http_pool=pool, cert_reader=NoCert())
+    mon = Monitor(factory, StatusStore(), RecordingBus(), resolver=unresolvable)
+    dev = DeviceConfig(id=1, name="Ext", host="only-via-proxy.example", kind="web",
+                       liveness="http", url="https://only-via-proxy.example/")
+    try:
+        [liveness] = await mon.test(dev)
+    finally:
+        await pool.aclose()
+    assert liveness.ok and liveness.reason is None
+    assert seen == ["https://only-via-proxy.example/"]
+
+
+async def test_http_liveness_non_http_checks_still_resolve_first():
+    factory = CheckerFactory()
+    up = CheckResult(CheckType.HTTP, "GET /", True, latency_ms=5.0)
+    factory.register(CheckType.HTTP, lambda c, d: FakeChecker([up]))
+    tcp = FakeChecker([CheckResult(CheckType.TCP, "tcp/443", True, latency_ms=1.0)])
+    factory.register(CheckType.TCP, lambda c, d: tcp)
+    mon = Monitor(factory, StatusStore(), RecordingBus(), resolver=unresolvable)
+    checks = (CheckConfig(3, CheckType.TCP, {"port": 443}),)
+    dev = DeviceConfig(id=1, name="Ext", host="only-via-proxy.example", kind="web",
+                       liveness="http", url="https://only-via-proxy.example/", checks=checks)
+    liveness, r = await mon.test(dev)
+    assert liveness.ok
+    assert not r.ok and r.reason == "dns" and r.label == "tcp/443" and r.check_id == 3
+    assert tcp.calls == 0
