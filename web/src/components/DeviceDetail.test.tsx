@@ -138,3 +138,53 @@ describe("DeviceDetail website", () => {
     expect(within(dialog).getByText("expires 2027-03-01 (112 days)")).toBeInTheDocument();
   });
 });
+
+describe("DeviceDetail focus", () => {
+  it("opens with focus on the dialog itself, not on Delete", async () => {
+    const { dialog } = setup();
+    await waitFor(() => expect(document.activeElement).toBe(dialog));
+    expect(within(dialog).getByRole("button", { name: "Delete" })).not.toHaveFocus();
+    await userEvent.keyboard("{Enter}");
+    expect(deleteDevice).not.toHaveBeenCalled();
+  });
+});
+
+describe("DeviceDetail HTTP results", () => {
+  const cert = { cert_expires: "2027-01-01T00:00:00Z", cert_days: 41, final_url: null };
+  const web: LiveDevice = {
+    ...device,
+    kind: "web",
+    host: "sts.example.org",
+    url: "https://sts.example.org/",
+    liveness: "http",
+    liveness_port: null,
+    checks: [
+      { id: 5, device_id: 7, type: "http", enabled: true, created_at: "", has_secret: false, params: { url: "https://sts.example.org/" } },
+      { id: 6, device_id: 7, type: "http", enabled: true, created_at: "", has_secret: false, params: { url: "https://api.example.org/health", name: "api" } },
+    ],
+    results: [
+      { type: "http", label: "GET /", ok: true, check_id: null, latency_ms: 78.73495802050456, value: { status_code: 200, elapsed_ms: 78.73495802050456, ...cert } },
+      { type: "http", label: "GET /", ok: true, check_id: 5, latency_ms: 2350.2, reason: "slow 2350 ms", slow: true, value: { status_code: 200, elapsed_ms: 2350.2, ...cert } },
+      { type: "http", label: "api", ok: false, check_id: 6, latency_ms: 12, reason: "status 503", value: { status_code: 503, elapsed_ms: 12, cert_expires: "2026-12-01T00:00:00Z", cert_days: 17, final_url: null } },
+    ],
+  };
+
+  it("formats HTTP results like the Test summary, without the raw value dump", () => {
+    const { dialog } = setup({ device: web });
+    expect(within(dialog).getByText("HTTP 200 · 79 ms · cert 41 d")).toBeInTheDocument();
+    expect(within(dialog).getByText("HTTP 200 · 2350 ms · cert 41 d · slow 2350 ms")).toBeInTheDocument();
+    expect(within(dialog).getByText("HTTP 503 · 12 ms · cert 17 d · status 503")).toBeInTheDocument();
+    expect(within(dialog).queryByText(/78\.7349/)).not.toBeInTheDocument();
+  });
+
+  it("shows one certificate line per host:port, the site's own labelled distinctly, without duplicate keys", () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { dialog } = setup({ device: web });
+    expect(within(dialog).getByText("Certificate (site)")).toBeInTheDocument();
+    expect(within(dialog).queryByText("Certificate (GET /)")).not.toBeInTheDocument();
+    expect(within(dialog).getAllByText("expires 2027-01-01 (41 days)")).toHaveLength(1);
+    expect(within(dialog).getByText("Certificate (api)")).toBeInTheDocument();
+    expect(within(dialog).getByText("expires 2026-12-01 (17 days)")).toBeInTheDocument();
+    expect(error.mock.calls.flat().join(" ")).not.toMatch(/same key/);
+  });
+});

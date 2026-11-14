@@ -438,17 +438,23 @@ export function certExpiryLine(r: ResultOut | null | undefined): string | null {
   return days < 0 ? `expired ${date}` : `expires ${date} (${days} ${days === 1 ? "day" : "days"})`;
 }
 
-// One line for the Test button: status, time, certificate and reason.
-export function httpTestSummary(r: ResultOut): string {
+function httpResultParts(r: ResultOut): string[] {
   const v = isHttpValue(r.value) ? r.value : {};
   const ms = elapsedOf(r);
-  const parts = [r.ok ? "OK" : "Failed"];
+  const parts: string[] = [];
   if (typeof v.status_code === "number") parts.push(`HTTP ${v.status_code}`);
   if (ms != null) parts.push(`${Math.round(ms)} ms`);
   if (typeof v.cert_days === "number") parts.push(`cert ${v.cert_days} d`);
   if (r.reason) parts.push(r.reason);
-  return parts.join(" · ");
+  return parts;
 }
+
+// Status, time, certificate and reason ("HTTP 200 · 79 ms · cert 41 d"), for a results table.
+export const httpResultDetail = (r: ResultOut): string => httpResultParts(r).join(" · ");
+
+// One line for the Test button: the same, after OK / Failed.
+export const httpTestSummary = (r: ResultOut): string =>
+  [r.ok ? "OK" : "Failed", ...httpResultParts(r)].join(" · ");
 
 export const resultForHttp = (
   check: Pick<HttpCheckOut, "id">,

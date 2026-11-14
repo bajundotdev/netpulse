@@ -1,11 +1,11 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { X } from "lucide-react";
 import { deleteDevice, testDevice, updateDevice } from "@/api/client";
 import StatusBadge from "@/components/StatusBadge";
 import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { certExpiryLine } from "@/features/http";
+import { certExpiryLine, httpResultDetail } from "@/features/http";
 import { KIND_LABELS, formatResultValue, statusVariant } from "@/features/format";
 import { useMonitor } from "@/state/MonitorContext";
 import type { LiveDevice, ResultOut } from "@/types";
@@ -42,7 +42,7 @@ function ResultsTable({ results }: { results: ResultOut[] | null | undefined }) 
             <td className="py-1 pr-2 text-right font-mono">
               {r.latency_ms == null ? "-" : `${Math.round(r.latency_ms)} ms`}
             </td>
-            <td className="py-1">{r.reason ?? formatResultValue(r.value)}</td>
+            <td className="py-1">{r.type === "http" ? httpResultDetail(r) : (r.reason ?? formatResultValue(r.value))}</td>
           </tr>
         ))}
       </tbody>
@@ -56,8 +56,18 @@ type Props = {
   onEdit: (device: LiveDevice) => void;
 };
 
+function endpointOf(url: string | null | undefined): string | null {
+  try {
+    const u = new URL(url ?? "");
+    return `${u.hostname}:${u.port || (u.protocol === "https:" ? "443" : "80")}`;
+  } catch {
+    return null;
+  }
+}
+
 export default function DeviceDetail({ device, onClose, onEdit }: Props) {
   const { dispatch, reload } = useMonitor();
+  const contentRef = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tested, setTested] = useState<ResultOut[] | null>(null);
@@ -104,15 +114,35 @@ export default function DeviceDetail({ device, onClose, onEdit }: Props) {
       `${LIVENESS_WORDS[device.liveness]}${device.liveness === "tcp" ? ` port ${device.liveness_port}` : ""}, every ${device.interval_s}s, down after ${device.fail_threshold} failures, ${device.timeout_ms} ms timeout`,
     ],
   ];
+  // One line per host:port and expiry: the site's own request and a check on the same endpoint
+  // read the same certificate, so a second identical line would add nothing.
+  const certsShown = new Set<string>();
   for (const r of device.results ?? []) {
     const line = certExpiryLine(r);
-    if (r.type === "http" && line) facts.push([`Certificate (${r.label})`, line]);
+    if (r.type !== "http" || !line) continue;
+    const site = r.check_id == null;
+    const check = site ? undefined : device.checks?.find((c) => c.id === r.check_id);
+    const url = site ? device.url : check?.type === "http" ? check.params.url : null;
+    const seen = `${endpointOf(url) ?? `check ${r.check_id}`} ${line}`;
+    if (certsShown.has(seen)) continue;
+    certsShown.add(seen);
+    facts.push([site ? "Certificate (site)" : `Certificate (${r.label})`, line]);
   }
   if (device.notes) facts.push(["Notes", device.notes]);
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl" aria-describedby={undefined} onCloseAutoFocus={(e) => e.preventDefault()}>
+      <DialogContent
+        ref={contentRef}
+        className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"
+        aria-describedby={undefined}
+        // Focus the dialog itself, not its first button (Delete): Enter must not start a delete.
+        onOpenAutoFocus={(e) => {
+          e.preventDefault();
+          contentRef.current?.focus();
+        }}
+        onCloseAutoFocus={(e) => e.preventDefault()}
+      >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-lg">
             {device.name}
@@ -130,8 +160,8 @@ export default function DeviceDetail({ device, onClose, onEdit }: Props) {
           </Alert>
         )}
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-          {facts.map(([term, value, cls]) => (
-            <div key={term} className="contents">
+          {facts.map(([term, value, cls], i) => (
+            <div key={`${i}-${term}`} className="contents">
               <dt className="text-muted-foreground">{term}</dt>
               <dd className={cls}>{value}</dd>
             </div>
