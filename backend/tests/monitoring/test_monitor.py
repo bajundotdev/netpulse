@@ -534,3 +534,87 @@ def test_check_config_repr_hides_secret():
     assert "hunter2" not in repr(check) and "hunter2" not in repr(
         DeviceConfig(id=1, name="W", host="h", checks=(check,))
     )
+
+
+# --- certificate events at monitor level --------------------------------------
+
+class CertChecker:
+    """HTTP checker stand-in whose certificate days come from a shared box."""
+
+    def __init__(self, box, ok_=True):
+        self.box, self.ok_ = box, ok_
+
+    async def check(self, host, timeout_ms):
+        days = self.box["days"]
+        value = {"status_code": 200, "elapsed_ms": 1, "cert_expires": "x", "cert_days": days,
+                 "final_url": "https://sts.example.ph/"}
+        ok_ = days >= 0
+        return CheckResult(CheckType.HTTP, "GET /", ok_, latency_ms=1.0,
+                           reason=None if ok_ else "tls: certificate has expired", value=value)
+
+
+def cert_monitor(box):
+    factory = CheckerFactory()
+    factory.register(CheckType.HTTP, lambda c, d: CertChecker(box))
+    bus = RecordingBus()
+    return Monitor(factory, StatusStore(), bus, resolver=fake_resolver), bus
+
+
+def cert_events(bus):
+    return [(e.severity, e.message) for e in bus.of("domain_event") if e.kind is EventKind.CERT_EXPIRY]
+
+
+WEB = dict(id=1, name="STS", host="sts.example.ph", kind="web", liveness="http",
+           url="https://sts.example.ph/", fail_threshold=1)
+
+
+async def test_expired_cert_on_liveness_only_device_fires_one_critical():
+    box = {"days": -3}
+    mon, bus = cert_monitor(box)
+    dev = DeviceConfig(**WEB)
+    for _ in range(3):
+        await mon.run_cycle(dev)
+    assert cert_events(bus) == [(Severity.CRITICAL, "STS cert for sts.example.ph expired")]
+
+
+async def test_liveness_and_explicit_check_share_one_warning():
+    box = {"days": 40}
+    mon, bus = cert_monitor(box)
+    check = CheckConfig(5, CheckType.HTTP, {"url": "https://sts.example.ph/x", "cert_warn_days": 30})
+    dev = DeviceConfig(**WEB, checks=(check,))
+    await mon.run_cycle(dev)
+    box["days"] = 12
+    for _ in range(4):
+        await mon.run_cycle(dev)
+    assert cert_events(bus) == [(Severity.WARNING, "STS cert for sts.example.ph expires in 12 days")]
+    [ev] = [e for e in bus.of("domain_event") if e.kind is EventKind.CERT_EXPIRY]
+    assert ev.check_id == 5
+
+
+async def test_smallest_warn_threshold_of_explicit_checks_wins():
+    box = {"days": 20}
+    mon, bus = cert_monitor(box)
+    checks = (
+        CheckConfig(5, CheckType.HTTP, {"url": "https://sts.example.ph/a", "cert_warn_days": 30}),
+        CheckConfig(6, CheckType.HTTP, {"url": "https://sts.example.ph/b", "cert_warn_days": 10}),
+    )
+    dev = DeviceConfig(**WEB, checks=checks)
+    await mon.run_cycle(dev)
+    assert cert_events(bus) == []
+    box["days"] = 9
+    await mon.run_cycle(dev)
+    assert len(cert_events(bus)) == 1
+
+
+async def test_renewal_fires_info_once():
+    box = {"days": -2}
+    mon, bus = cert_monitor(box)
+    dev = DeviceConfig(**WEB)
+    await mon.run_cycle(dev)
+    box["days"] = 89
+    for _ in range(3):
+        await mon.run_cycle(dev)
+    assert cert_events(bus) == [
+        (Severity.CRITICAL, "STS cert for sts.example.ph expired"),
+        (Severity.INFO, "STS cert for sts.example.ph renewed (89 days)"),
+    ]

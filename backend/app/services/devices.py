@@ -176,11 +176,12 @@ class DeviceService:
             raise ValidationFailed("auth needs a secret")
 
     def _create_sync(self, data: DeviceIn) -> tuple[DeviceOut, DeviceConfig]:
+        for check in data.checks:  # validate everything before the first write
+            self._require_secret(check, stored=False)
         fields = data.model_dump(exclude={"snmp", "checks"})
         fields.update(_snmp_fields(data.snmp))
         row = self._devices.create(fields)
         for check in data.checks:
-            self._require_secret(check, stored=False)
             self._checks.create(row.id, check.model_dump())
         return self._out(row), self._devices.to_config(row)
 

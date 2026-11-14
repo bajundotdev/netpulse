@@ -257,3 +257,15 @@ def test_cert_event_for_http_check_via_monitor(client, fake):
     client.portal.call(cycle)
     msgs = [e["message"] for e in client.get("/api/events").json() if e["kind"] == "cert_expiry"]
     assert msgs == ["API cert for 10.0.0.5 expires in 5 days"]
+
+
+def test_failed_device_create_leaves_no_half_created_device(client):
+    body = {
+        "name": "API", "kind": "web", "url": URL,
+        "checks": [{"type": "http", "params": {"url": URL, "auth": {"type": "bearer"}}}],
+    }
+    r = client.post("/api/devices", json=body)
+    assert r.status_code == 422
+    assert client.get("/api/devices").json() == []
+    body["checks"][0]["secret"] = SECRET
+    assert client.post("/api/devices", json=body).status_code == 201

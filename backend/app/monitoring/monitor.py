@@ -213,8 +213,16 @@ class Monitor:
             await self._publish_change(device.id, prev, state, event)
         checks = [c for c in device.checks if c.enabled]
         for check, result in zip(checks, others):
+            if check.type is CheckType.HTTP:
+                continue  # certificates are handled together below
             for ev in self._tracker.observe(device.id, device.name, check, result):
                 await self._bus.publish("domain_event", ev)
+        # Liveness included: an expired certificate fails it before any other check can run.
+        cert_items = [(c, r) for c, r in zip(checks, others) if c.type is CheckType.HTTP]
+        if device.liveness_check().type is CheckType.HTTP:
+            cert_items.append((device.liveness_check(), liveness))
+        for ev in self._tracker.observe_certs(device.id, device.name, cert_items):
+            await self._bus.publish("domain_event", ev)
         await self._bus.publish(
             "result",
             {

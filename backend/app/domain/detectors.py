@@ -121,21 +121,57 @@ class ChangeTracker:
         return [event(Severity.INFO, EventKind.OID_THRESHOLD, msg)]
 
     def _certificate(self, key, prev, name, check, result, event) -> list[DomainEvent]:
-        """One event per crossing of the certificate's warning threshold (https checks only)."""
-        url = urlsplit(str(check.params.get("url") or ""))
-        value = result.value
-        days = value.get("cert_days") if isinstance(value, dict) else None
-        if url.scheme != "https" or not url.hostname or not isinstance(days, int):
-            return []  # unknown expiry keeps the previous baseline
-        warn = check.params.get("cert_warn_days")
-        zone = _cert_zone(days, DEFAULT_CERT_WARN_DAYS if warn is None else int(warn))
-        self._state[key] = zone
-        if zone == prev or (prev is None and zone == "ok"):
-            return []
-        subject = f"{name} cert for {url.hostname}"
-        if zone == "expired":
-            return [event(Severity.CRITICAL, EventKind.CERT_EXPIRY, f"{subject} expired")]
-        if zone == "warn":
-            msg = f"{subject} expires in {days} days"
-            return [event(Severity.WARNING, EventKind.CERT_EXPIRY, msg)]
-        return [event(Severity.INFO, EventKind.CERT_EXPIRY, f"{subject} renewed ({days} days)")]
+        return self.observe_certs(key[0], name, [(check, result)])
+
+    def observe_certs(
+        self, device_id: int, name: str, items: list[tuple[CheckConfig, CheckResult]]
+    ) -> list[DomainEvent]:
+        """Certificate events from HTTP results (liveness and explicit checks alike).
+
+        State is per device and host:port, so a liveness check and explicit checks on the same
+        endpoint share one zone and fire once. The threshold is the smallest cert_warn_days of the
+        explicit checks (check.id set) on that endpoint, else the default.
+        """
+        groups: dict[tuple[str, int], dict[str, Any]] = {}
+        for check, result in items:
+            url = urlsplit(str(check.params.get("url") or ""))
+            if check.type is not CheckType.HTTP or url.scheme != "https" or not url.hostname:
+                continue
+            g = groups.setdefault(
+                (url.hostname, url.port or 443),
+                {"days": None, "warns": [], "check_id": None},
+            )
+            value = result.value
+            days = value.get("cert_days") if isinstance(value, dict) else None
+            if isinstance(days, int) and not isinstance(days, bool) and g["days"] is None:
+                g["days"] = days
+            if check.id is not None:
+                warn = check.params.get("cert_warn_days")
+                g["warns"].append(DEFAULT_CERT_WARN_DAYS if warn is None else int(warn))
+                if g["check_id"] is None:
+                    g["check_id"] = check.id
+        events: list[DomainEvent] = []
+        for (host, port), g in groups.items():
+            days = g["days"]
+            if days is None:
+                continue  # unknown expiry keeps the previous baseline
+            key = (device_id, f"cert:{host}:{port}", CheckType.HTTP)
+            zone = _cert_zone(days, min(g["warns"], default=DEFAULT_CERT_WARN_DAYS))
+            prev = self._state.get(key)
+            self._state[key] = zone
+            if zone == prev or (prev is None and zone == "ok"):
+                continue
+            subject = f"{name} cert for {host}"
+
+            def event(sev: Severity, msg: str) -> DomainEvent:
+                return DomainEvent(
+                    device_id, sev, EventKind.CERT_EXPIRY, msg, check_id=g["check_id"]
+                )
+
+            if zone == "expired":
+                events.append(event(Severity.CRITICAL, f"{subject} expired"))
+            elif zone == "warn":
+                events.append(event(Severity.WARNING, f"{subject} expires in {days} days"))
+            else:
+                events.append(event(Severity.INFO, f"{subject} renewed ({days} days)"))
+        return events
