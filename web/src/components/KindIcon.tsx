@@ -1,4 +1,4 @@
-import { Box, Network, Printer, Server, ServerCog, type LucideIcon } from "lucide-react";
+import { Box, Globe, Network, Printer, Server, ServerCog, type LucideIcon } from "lucide-react";
 import type { DeviceKind } from "@/types";
 
 const ICONS: Record<DeviceKind, LucideIcon> = {
@@ -7,6 +7,7 @@ const ICONS: Record<DeviceKind, LucideIcon> = {
   switch: Network,
   printer: Printer,
   other: Box,
+  web: Globe,
 };
 
 export default function KindIcon({ kind }: { kind: DeviceKind }) {

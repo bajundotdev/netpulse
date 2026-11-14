@@ -11,8 +11,8 @@ export type Range = "1h" | "24h" | "7d";
 export type View = "list" | "cards";
 export type SortKey = "problems" | "name" | "host" | "latency";
 
-export type DeviceKind = "dc" | "server" | "switch" | "printer" | "other";
-export type Liveness = "ping" | "tcp";
+export type DeviceKind = "dc" | "server" | "switch" | "printer" | "other" | "web";
+export type Liveness = "ping" | "tcp" | "http";
 export type SnmpVersion = "v2c" | "v3";
 export type AuthProto = "none" | "MD5" | "SHA" | "SHA256";
 export type PrivProto = "none" | "DES" | "AES128" | "AES256";
@@ -38,16 +38,48 @@ export type SnmpOidParams = {
   value?: number;
 };
 
+export type HttpMethod = "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE";
+export type KeywordMode = "contains" | "absent";
+export type JsonOp = "==" | "!=" | ">" | ">=" | "<" | "<=" | "exists";
+export type HttpAuthType = "bearer" | "basic" | "header";
+export type HttpParams = {
+  url: string;
+  method?: HttpMethod;
+  headers?: Record<string, string>;
+  body?: string;
+  expect_status?: string;
+  keyword?: { text: string; mode: KeywordMode };
+  json?: { path: string; op: JsonOp; value?: unknown };
+  slow_ms?: number;
+  cert_warn_days?: number;
+  verify_tls?: boolean;
+  follow_redirects?: boolean;
+  auth?: { type: HttpAuthType; username?: string; header_name?: string };
+  name?: string;
+};
+
+// The value of an HTTP check result (spec 3.3).
+export type HttpResultValue = {
+  status_code: number | null;
+  elapsed_ms: number | null;
+  cert_expires: string | null;
+  cert_days: number | null;
+  final_url: string | null;
+};
+
 export type CheckSpec =
   | { type: "tcp"; params: TcpParams }
   | { type: "snmp_uptime"; params: SnmpUptimeParams }
   | { type: "snmp_if"; params: SnmpIfParams }
-  | { type: "snmp_oid"; params: SnmpOidParams };
+  | { type: "snmp_oid"; params: SnmpOidParams }
+  | { type: "http"; params: HttpParams };
 
-export type CheckIn = CheckSpec & { enabled?: boolean };
+// `secret` (HTTP auth) is write-only: omitted keeps the stored one, "" clears it.
+export type CheckIn = CheckSpec & { enabled?: boolean; secret?: string | null };
 export type CheckOut = CheckSpec & Omit<Schemas["CheckOut"], "type" | "params">;
 
 export type TcpCheckOut = Extract<CheckOut, { type: "tcp" }>;
+export type HttpCheckOut = Extract<CheckOut, { type: "http" }>;
 
 export type DeviceIn = Omit<Schemas["DeviceIn"], "checks"> & { checks?: CheckIn[] };
 

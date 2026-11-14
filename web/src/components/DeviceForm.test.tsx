@@ -85,3 +85,58 @@ describe("DeviceForm", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 });
+
+describe("DeviceForm website kind", () => {
+  beforeEach(() => createDevice.mockReset());
+
+  it("swaps Host for URL, hides liveness and restores Host when switching back", async () => {
+    render(<Harness />);
+    const dialog = await openForm();
+    await userEvent.selectOptions(within(dialog).getByLabelText("Kind"), "web");
+    expect(within(dialog).getByLabelText("URL")).toBeInTheDocument();
+    expect(within(dialog).queryByLabelText("Host or IP")).not.toBeInTheDocument();
+    expect(within(dialog).queryByLabelText("Liveness check")).not.toBeInTheDocument();
+    expect(within(dialog).getByLabelText("Interval (s)")).toHaveValue(null);
+    expect(within(dialog).getByLabelText("Interval (s)")).toHaveAttribute("placeholder", "30");
+    expect(within(dialog).getByLabelText("Timeout (ms)")).toHaveAttribute("placeholder", "10000");
+    await userEvent.selectOptions(within(dialog).getByLabelText("Kind"), "server");
+    expect(within(dialog).getByLabelText("Host or IP")).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("Liveness check")).toHaveValue("ping");
+    expect(within(dialog).getByLabelText("Interval (s)")).toHaveValue(5);
+  });
+
+  it("creates a website with the URL, http liveness, server defaults and its HTTP checks", async () => {
+    createDevice.mockResolvedValue({});
+    render(<Harness />);
+    const dialog = await openForm();
+    await userEvent.type(within(dialog).getByLabelText("Name"), "ADFS");
+    await userEvent.selectOptions(within(dialog).getByLabelText("Kind"), "web");
+    await userEvent.type(within(dialog).getByLabelText("URL"), "https://sts.example.org/adfs");
+    await userEvent.click(within(dialog).getByRole("tab", { name: "HTTP" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Add HTTP check" }));
+    await userEvent.type(within(dialog).getByLabelText("URL"), "https://sts.example.org/adfs/ls");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(createDevice).toHaveBeenCalled());
+    const body = createDevice.mock.calls[0][0] as Record<string, unknown>;
+    expect(body).toMatchObject({ name: "ADFS", kind: "web", url: "https://sts.example.org/adfs", liveness: "http" });
+    expect("host" in body).toBe(false);
+    expect("interval_s" in body).toBe(false);
+    expect("timeout_ms" in body).toBe(false);
+    expect(body.checks).toEqual([
+      expect.objectContaining({ type: "http", params: expect.objectContaining({ url: "https://sts.example.org/adfs/ls" }) }),
+    ]);
+  });
+
+  it("blocks saving a check with a bad URL and opens the HTTP tab", async () => {
+    render(<Harness />);
+    const dialog = await openForm();
+    await userEvent.type(within(dialog).getByLabelText("Name"), "x");
+    await userEvent.type(within(dialog).getByLabelText("Host or IP"), "h");
+    await userEvent.click(within(dialog).getByRole("tab", { name: "HTTP" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Add HTTP check" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(/http:\/\/ or https:\/\/ URL/);
+    expect(createDevice).not.toHaveBeenCalled();
+  });
+});
+

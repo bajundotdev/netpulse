@@ -65,3 +65,34 @@ describe("DeviceCard", () => {
     expect(onOpen).toHaveBeenCalledWith(7);
   });
 });
+
+describe("DeviceCard HTTP chips", () => {
+  const web: LiveDevice = {
+    ...device,
+    kind: "web",
+    host: "sts.example.org",
+    url: "https://sts.example.org/adfs",
+    liveness: "http",
+    checks: [
+      { id: 5, device_id: 7, type: "http", enabled: true, created_at: "", has_secret: false, params: { url: "https://sts.example.org/adfs" } },
+      { id: 6, device_id: 7, type: "http", enabled: true, created_at: "", has_secret: false, params: { url: "https://x.org/h", name: "api/health" } },
+      { id: 7, device_id: 7, type: "http", enabled: true, created_at: "", has_secret: false, params: { url: "https://x.org/new" } },
+    ],
+    results: [
+      { type: "http", label: "liveness", ok: true, check_id: null, latency_ms: 90, value: { status_code: 200, elapsed_ms: 90, cert_expires: "2027-01-01T00:00:00Z", cert_days: 10, final_url: null } },
+      { type: "http", label: "GET /adfs", ok: true, check_id: 5, latency_ms: 143, value: { status_code: 200, elapsed_ms: 143, cert_expires: "2027-03-01T00:00:00Z", cert_days: 112, final_url: null } },
+      { type: "http", label: "api/health", ok: false, check_id: 6, reason: "status 503", value: { status_code: 503, elapsed_ms: 12, cert_expires: null, cert_days: null, final_url: null } },
+    ],
+  };
+
+  it("shows check chips, a pending chip and certificate chips with their tones", () => {
+    render(<DeviceCard device={web} now={NOW} onOpen={vi.fn()} />);
+    expect(screen.getByText("GET /adfs ✓ 143 ms")).toBeInTheDocument();
+    const failed = screen.getByText("api/health ✗ status 503");
+    expect(failed.parentElement).toHaveAttribute("title", "status 503");
+    expect(screen.getByText("GET /new …")).toBeInTheDocument();
+    expect(screen.getByText("cert 112 d").parentElement).toHaveClass("bg-zinc-500");
+    // the liveness certificate (10 days, under the 14 day default) is amber
+    expect(screen.getByText("cert 10 d").parentElement).toHaveClass("bg-amber-500");
+  });
+});

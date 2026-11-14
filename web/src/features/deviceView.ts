@@ -50,7 +50,8 @@ export function filterDevices(devices: LiveDevice[], query: string | null | unde
   if (!q) return devices;
   return devices.filter((d) => {
     const ports = (d.checks ?? []).flatMap((c) => (c.type === "tcp" ? [String(c.params.port)] : []));
-    const fields = [d.name, d.host, KIND_LABELS[d.kind] ?? d.kind, d.status, d.notes];
+    const httpText = (d.checks ?? []).flatMap((c) => (c.type === "http" ? [c.params.url, c.params.name] : []));
+    const fields = [d.name, d.host, d.url, ...httpText, KIND_LABELS[d.kind] ?? d.kind, d.status, d.notes];
     return (
       fields.some((f) => f != null && String(f).toLowerCase().includes(q)) || ports.includes(q)
     );

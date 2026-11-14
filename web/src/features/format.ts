@@ -58,6 +58,7 @@ export const KIND_LABELS: Record<DeviceKind, string> = {
   switch: "Switch",
   printer: "Printer",
   other: "Other",
+  web: "Website / API",
 };
 
 // sysUpTime ticks are 1/100 s.

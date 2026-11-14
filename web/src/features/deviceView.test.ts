@@ -153,3 +153,19 @@ describe("task 6 rulings", () => {
   });
 });
 
+
+describe("filterDevices on websites", () => {
+  const web = dev({
+    id: 20, name: "ADFS", host: "sts.example.org", kind: "web", url: "https://sts.example.org/adfs",
+    checks: [{
+      id: 21, device_id: 20, type: "http", enabled: true, created_at: "", has_secret: false,
+      params: { url: "https://api.example.org/health", name: "api/health" },
+    }],
+  });
+  test("matches the device URL, and HTTP check URLs and names", () => {
+    expect(filterDevices([...ds, web], "/adfs").map((d) => d.id)).toEqual([20]);
+    expect(filterDevices([...ds, web], "api.example.org").map((d) => d.id)).toEqual([20]);
+    expect(filterDevices([...ds, web], "api/health").map((d) => d.id)).toEqual([20]);
+    expect(filterDevices([...ds, web], "website").map((d) => d.id)).toEqual([20]);
+  });
+});

@@ -1,5 +1,6 @@
 import { Check, ChevronRight, CircleQuestionMark, Pause, TriangleAlert, X, type LucideIcon } from "lucide-react";
 import KindIcon from "./KindIcon";
+import HttpChips from "./HttpChips";
 import PortChips from "./PortChips";
 import StatusBadge from "./StatusBadge";
 import StatusStrip from "./StatusStrip";
@@ -109,6 +110,7 @@ export default function DeviceRow({ device, history, range, now, expanded, onTog
             <p className="mb-1 text-sm text-muted-foreground">History loading…</p>
           )}
           <PortChips device={device} />
+          <HttpChips device={device} />
           <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
             <span>Latency {last == null ? "–" : `${Math.round(last)} ms`}</span>
             {snmp && <span>Uptime {formatUptime(snmp.value as number | string)}</span>}

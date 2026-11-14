@@ -5,9 +5,12 @@ import StatusBadge from "@/components/StatusBadge";
 import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { certExpiryLine } from "@/features/http";
 import { KIND_LABELS, formatResultValue, statusVariant } from "@/features/format";
 import { useMonitor } from "@/state/MonitorContext";
 import type { LiveDevice, ResultOut } from "@/types";
+
+const LIVENESS_WORDS: Record<LiveDevice["liveness"], string> = { ping: "Ping", tcp: "TCP", http: "HTTP request" };
 
 function errorMessage(err: unknown): string {
   if (err instanceof Error) {
@@ -93,13 +96,18 @@ export default function DeviceDetail({ device, onClose, onEdit }: Props) {
   };
 
   const facts: [string, React.ReactNode, string?][] = [
+    ...(device.url ? ([["URL", device.url, "font-mono break-all"]] as [string, React.ReactNode, string?][]) : []),
     ["Host", device.host, "font-mono"],
     ["Kind", KIND_LABELS[device.kind] ?? device.kind],
     [
       "Liveness",
-      `${device.liveness === "tcp" ? `TCP port ${device.liveness_port}` : "Ping"}, every ${device.interval_s}s, down after ${device.fail_threshold} failures, ${device.timeout_ms} ms timeout`,
+      `${LIVENESS_WORDS[device.liveness]}${device.liveness === "tcp" ? ` port ${device.liveness_port}` : ""}, every ${device.interval_s}s, down after ${device.fail_threshold} failures, ${device.timeout_ms} ms timeout`,
     ],
   ];
+  for (const r of device.results ?? []) {
+    const line = certExpiryLine(r);
+    if (r.type === "http" && line) facts.push([`Certificate (${r.label})`, line]);
+  }
   if (device.notes) facts.push(["Notes", device.notes]);
 
   return (

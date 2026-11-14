@@ -1,3 +1,4 @@
+import HttpChips from "./HttpChips";
 import PortChips from "./PortChips";
 import Sparkline from "./Sparkline";
 import StatusBadge, { STATUS_RING } from "./StatusBadge";
@@ -48,6 +49,7 @@ export default function DeviceCard({ device, now, onOpen }: Props) {
           <Sparkline values={device.latency} variant={variant} />
         </div>
         <PortChips device={device} />
+        <HttpChips device={device} />
         {uptime && <div className="mt-1 text-sm text-muted-foreground">Uptime {formatUptime(uptime.value as number | string)}</div>}
         <div className="mt-1 flex justify-between text-sm text-muted-foreground">
           <span>{KIND_LABELS[device.kind] ?? device.kind}</span>

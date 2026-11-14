@@ -118,3 +118,23 @@ describe("DeviceDetail", () => {
     expect(onClose).toHaveBeenCalled();
   });
 });
+
+describe("DeviceDetail website", () => {
+  it("shows the URL and the certificate expiry date", () => {
+    const { dialog } = setup({
+      device: {
+        ...device,
+        kind: "web",
+        url: "https://sts.example.org/adfs",
+        liveness: "http",
+        liveness_port: null,
+        results: [
+          { type: "http", label: "GET /adfs", ok: true, check_id: 5, latency_ms: 143, value: { status_code: 200, elapsed_ms: 143, cert_expires: "2027-03-01T00:00:00Z", cert_days: 112, final_url: null } },
+        ],
+      },
+    });
+    expect(within(dialog).getByText("https://sts.example.org/adfs")).toHaveClass("font-mono");
+    expect(within(dialog).getByText(/HTTP request, every 30s/)).toBeInTheDocument();
+    expect(within(dialog).getByText("expires 2027-03-01 (112 days)")).toBeInTheDocument();
+  });
+});
