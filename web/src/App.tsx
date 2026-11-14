@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
-import DeviceDetail from "./components/DeviceDetail";
 import DeviceToolbar from "./components/DeviceToolbar";
-import DeviceForm from "./components/DeviceForm";
 import DeviceGrid from "./components/DeviceGrid";
 import DeviceList from "./components/DeviceList";
 import EventLog from "./components/EventLog";
+import { DeviceDetail, DeviceForm, DialogBoundary, preloadDialogs } from "./components/LazyDialogs";
 import StatusPanel from "./components/StatusPanel";
 import SummaryStrip from "./components/SummaryStrip";
 import TopBar from "./components/TopBar";
@@ -40,6 +39,7 @@ export default function App() {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
+  useEffect(preloadDialogs, []);
 
   const changeView = (v: typeof view) => {
     setView(v);
@@ -167,14 +167,21 @@ export default function App() {
           </div>
         </div>
       </main>
-      {detail && !form && (
-        <DeviceDetail
-          device={detail}
-          onClose={() => setDetailId(null)}
-          onEdit={(device: LiveDevice) => setForm({ device })}
-        />
-      )}
-      {form && <DeviceForm device={form.device} onSaved={onSaved} onClose={() => setForm(null)} />}
+      <DialogBoundary
+        onClose={() => {
+          setForm(null);
+          setDetailId(null);
+        }}
+      >
+        {detail && !form && (
+          <DeviceDetail
+            device={detail}
+            onClose={() => setDetailId(null)}
+            onEdit={(device: LiveDevice) => setForm({ device })}
+          />
+        )}
+        {form && <DeviceForm device={form.device} onSaved={onSaved} onClose={() => setForm(null)} />}
+      </DialogBoundary>
     </>
   );
 }

@@ -70,7 +70,7 @@ const card = () => screen.getByRole("button", { name: /dc01/ });
 
 async function openEdit() {
   await userEvent.click(card());
-  const detail = screen.getByRole("dialog");
+  const detail = await screen.findByRole("dialog");
   await userEvent.click(within(detail).getByRole("button", { name: "Edit" }));
   return screen.findByRole("dialog", { name: /Edit dc01/ });
 }
@@ -109,7 +109,7 @@ describe("App dialog focus", () => {
     render(<App />);
     card().focus();
     await userEvent.click(card());
-    await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Delete" }));
+    await userEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Delete" }));
     await waitFor(() => expect(deleteDevice).toHaveBeenCalledWith(7));
     await gone();
     await waitFor(() => expect(screen.getByRole("searchbox", { name: "Search devices" })).toHaveFocus());
