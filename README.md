@@ -73,8 +73,8 @@ by the backend itself, so a normal run needs only one process.
 
 - Windows 10/11 (the ping checker parses the output of Windows `ping.exe`).
 - **Python 3.12 or newer** on PATH (the `py` launcher or `python`).
-- **Node.js 22 LTS** (20.19+ minimum to build), only once, to build the web UI the first
-  time (or when you change the frontend). Not needed afterwards.
+- **Node.js 22 LTS** (20.19+ minimum to build) to build the web UI. `run.bat` builds it on
+  the first run and again after each update, so keep Node.js installed.
 - No admin rights needed.
 
 ## Start and stop
@@ -258,7 +258,8 @@ devices, history and the key.
 - **SNMP checks fail with `timeout`:** the SNMP service is not running, the community or
   v3 credentials are wrong, or the NetPulse PC is not in the allowed hosts list.
 - **Port already in use:** set `NETPULSE_PORT` to another value.
-- **`run.bat` says Node.js is needed:** install Node 22 LTS (20.19+) once to build the UI.
+- **`run.bat` says Node.js is needed:** install Node 22 LTS (20.19+) and run `run.bat`
+  again. It is needed whenever the UI has to be rebuilt: the first run and after each update.
 - **`400 Invalid host header`:** you opened NetPulse by a name it does not know. Use
   `http://localhost:8765`, or add the name to `NETPULSE_ALLOWED_HOSTS` when bound to a LAN
   address.
