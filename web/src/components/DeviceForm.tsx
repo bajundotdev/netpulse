@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { KIND_LABELS } from "@/features/format";
-import { applyHttpChanges, desiredHttpChecks, httpFormsOf, type HttpSaveError } from "@/features/http";
+import { HttpFormError, applyHttpChanges, desiredHttpChecks, httpFormsOf, type HttpSaveError } from "@/features/http";
 import { applyPortChanges, portsOf, withPendingPort, type BaselineError } from "@/features/ports";
 import { applySnmpChanges, buildSnmpPayload, desiredSnmpChecks, snmpFormOf } from "@/features/snmp";
 import type { CheckOut, DeviceIn, DeviceKind, DeviceOut, Liveness } from "@/types";
@@ -157,7 +157,12 @@ export default function DeviceForm({ device, onSaved, onClose }: Props) {
   const [portError, setPortError] = useState<string | null>(null);
   const [tab, setTab] = useState("general");
   const [snmp, setSnmp] = useState(() => snmpFormOf(device));
-  const [http, setHttp] = useState(() => httpFormsOf(device?.checks));
+  const [http, setHttpForms] = useState(() => httpFormsOf(device?.checks));
+  const [httpError, setHttpError] = useState<HttpFormError | null>(null);
+  const setHttp = (next: typeof http) => {
+    setHttpError(null);
+    setHttpForms(next);
+  };
   const [baseline, setBaseline] = useState<CheckOut[]>(() => device?.checks ?? []);
   const [saving, setSaving] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
@@ -183,7 +188,9 @@ export default function DeviceForm({ device, onSaved, onClose }: Props) {
     try {
       desiredHttp = desiredHttpChecks(http);
     } catch (caught) {
-      setErrors({ fields: {}, general: caught instanceof Error ? caught.message : String(caught) });
+      const general = caught instanceof HttpFormError ? caught.summary : caught instanceof Error ? caught.message : String(caught);
+      setErrors({ fields: {}, general });
+      setHttpError(caught instanceof HttpFormError ? caught : null);
       setTab("http");
       return;
     }
@@ -386,7 +393,7 @@ export default function DeviceForm({ device, onSaved, onClose }: Props) {
               />
             </TabsContent>
             <TabsContent value="http" className="pt-2">
-              <HttpTab value={http} onChange={setHttp} deviceId={device?.id} />
+              <HttpTab value={http} onChange={setHttp} deviceId={device?.id} error={httpError} />
             </TabsContent>
             <TabsContent value="snmp" className="pt-2">
               <SnmpTab value={snmp} onChange={setSnmp} current={device?.snmp} />

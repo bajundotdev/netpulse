@@ -460,6 +460,11 @@ export interface components {
             reason?: string | null;
             /** Value */
             value?: unknown;
+            /**
+             * Slow
+             * @default false
+             */
+            slow?: boolean;
         };
         /**
          * SnmpIn

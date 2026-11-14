@@ -1,5 +1,6 @@
 import base64
 import logging
+import time
 from datetime import UTC, datetime, timedelta
 
 import httpx2
@@ -28,6 +29,8 @@ class Fake:
         self.seen.append(request)
         if self.mode == "boom":
             raise httpx2.ReadError(f"upstream said {request.headers.get('authorization')}")
+        if self.mode == "slow":
+            time.sleep(0.05)
         if self.mode == "500":
             return httpx2.Response(500)
         return httpx2.Response(200, json={"ok": True})
@@ -269,3 +272,15 @@ def test_failed_device_create_leaves_no_half_created_device(client):
     assert client.get("/api/devices").json() == []
     body["checks"][0]["secret"] = SECRET
     assert client.post("/api/devices", json=body).status_code == 201
+
+
+def test_test_endpoint_flags_a_slow_http_result(client, fake):
+    d = web(client)
+    add_http(client, d["id"], slow_ms=1)
+    fake.mode = "slow"
+    results = client.post(f"/api/devices/{d['id']}/test").json()
+    http = [r for r in results if r["check_id"] is not None]
+    assert http and http[0]["ok"] is True and http[0]["slow"] is True
+    fake.mode = "ok"
+    fast = client.post(f"/api/devices/{d['id']}/test").json()
+    assert all(r["slow"] is False for r in fast)

@@ -137,6 +137,29 @@ describe("DeviceForm website kind", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
     expect(await within(dialog).findByRole("alert")).toHaveTextContent(/http:\/\/ or https:\/\/ URL/);
     expect(createDevice).not.toHaveBeenCalled();
+    const url = within(dialog).getByLabelText("URL");
+    expect(url).toHaveAttribute("aria-invalid", "true");
+    expect(url).toHaveAccessibleDescription("Enter an http:// or https:// URL");
+    expect(url).toHaveFocus();
+  });
+
+  it("focuses the invalid field when already on the HTTP tab, and clears the error on edit", async () => {
+    render(<Harness />);
+    const dialog = await openForm();
+    await userEvent.type(within(dialog).getByLabelText("Name"), "x");
+    await userEvent.type(within(dialog).getByLabelText("Host or IP"), "h");
+    await userEvent.click(within(dialog).getByRole("tab", { name: "HTTP" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Add HTTP check" }));
+    await userEvent.type(within(dialog).getByLabelText("URL"), "https://a.example.org/");
+    await userEvent.clear(within(dialog).getByLabelText("Slow after (ms)"));
+    await userEvent.type(within(dialog).getByLabelText("Slow after (ms)"), "0");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    const slow = within(dialog).getByLabelText("Slow after (ms)");
+    await waitFor(() => expect(slow).toHaveAttribute("aria-invalid", "true"));
+    expect(slow).toHaveFocus();
+    expect(within(dialog).getByLabelText("URL")).not.toHaveAttribute("aria-invalid", "true");
+    await userEvent.type(slow, "5");
+    expect(slow).not.toHaveAttribute("aria-invalid", "true");
   });
 });
 

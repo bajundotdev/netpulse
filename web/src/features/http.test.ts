@@ -15,7 +15,7 @@ import {
   newHttpForm,
   type HttpForm,
 } from "./http";
-import type { HttpSaveError } from "./http";
+import { HttpFormError, isSlow, type HttpSaveError } from "./http";
 
 const form = (over: Partial<HttpForm> = {}): HttpForm => ({ ...newHttpForm(), url: "https://sts.example.org/adfs", ...over });
 const httpCheck = (id: number, params: HttpCheckOut["params"], has_secret = false): HttpCheckOut => ({
@@ -61,6 +61,30 @@ describe("httpChipText", () => {
   it("derives the name from method and path", () => {
     const post = httpCheck(6, { url: "https://x.org/", method: "POST" });
     expect(httpChipText(post, null).text).toBe("POST / …");
+  });
+});
+
+describe("isSlow", () => {
+  it("uses the slow flag, and the reason text only when the flag is absent", () => {
+    expect(isSlow(result({ slow: true, reason: "slow 2350 ms" }))).toBe(true);
+    expect(isSlow(result({ slow: false, reason: "slow 2350 ms" }))).toBe(false);
+    expect(isSlow(result({ reason: "slow 2350 ms" }))).toBe(true);
+    expect(isSlow(result({ slow: true, ok: false }))).toBe(false);
+  });
+});
+
+describe("HttpFormError", () => {
+  it("names the check and the field", () => {
+    const f = form({ url: "ftp://x" });
+    const err = (() => {
+      try {
+        buildHttpParams(f);
+      } catch (e) {
+        return e;
+      }
+    })();
+    expect(err).toBeInstanceOf(HttpFormError);
+    expect(err).toMatchObject({ formKey: f.key, field: "url" });
   });
 });
 
@@ -118,7 +142,7 @@ describe("buildHttpParams", () => {
   it("rejects a non-http URL and bad numbers", () => {
     expect(() => buildHttpParams(form({ url: "ftp://x" }))).toThrow(/http/);
     expect(() => buildHttpParams(form({ url: "" }))).toThrow(/http/);
-    expect(() => buildHttpParams(form({ slowMs: "fast" }))).toThrow(/slow/);
+    expect(() => buildHttpParams(form({ slowMs: "fast" }))).toThrow(/slow/i);
   });
   it("adds auth details by type", () => {
     expect(buildHttpParams(form({ authType: "basic", authUsername: "svc" })).auth).toEqual({ type: "basic", username: "svc" });
@@ -140,7 +164,7 @@ describe("buildHttpCheck secret handling", () => {
     expect(buildHttpCheck(form({ authType: "bearer", secret: "tok" })).secret).toBe("tok");
   });
   it("needs a secret when auth is new", () => {
-    expect(() => buildHttpCheck(form({ authType: "bearer" }))).toThrow(/token/);
+    expect(() => buildHttpCheck(form({ authType: "bearer" }))).toThrow(/token/i);
   });
   it("clears a stored secret when auth is switched off", () => {
     expect(buildHttpCheck(form({ authType: "none", hasSecret: true })).secret).toBe("");

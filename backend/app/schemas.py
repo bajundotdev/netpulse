@@ -405,6 +405,7 @@ class ResultOut(BaseModel):
     latency_ms: float | None = None
     reason: str | None = None
     value: Any = None
+    slow: bool = False  # ok, but slower than the check's slow_ms
 
 
 class DeviceStatusOut(BaseModel):

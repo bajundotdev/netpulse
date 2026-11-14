@@ -144,13 +144,31 @@ export const isHttpUrl = (text: string): boolean => {
   }
 };
 
+// Which editor field a validation problem belongs to; the values are the field id suffixes in HttpTab.
+export type HttpField = "url" | "jsonPath" | "slowMs" | "certDays" | "authUser" | "authHeader" | "secret";
+
+// A validation problem in one HTTP check's editor: `message` is for the field, `summary` names the
+// check as well, for the dialog's general alert.
+export class HttpFormError extends Error {
+  formKey: string;
+  field: HttpField;
+  summary: string;
+  constructor(form: HttpForm, field: HttpField, message: string) {
+    super(message);
+    this.name = "HttpFormError";
+    this.formKey = form.key;
+    this.field = field;
+    this.summary = `${label(form)}: ${message}`;
+  }
+}
+
 const label = (form: HttpForm): string => form.name.trim() || form.url.trim() || "(no URL)";
 
-function wholeNumber(text: string, what: string, form: HttpForm, min: number): number | undefined {
+function wholeNumber(text: string, what: string, form: HttpForm, field: HttpField, min: number): number | undefined {
   const s = text.trim();
   if (s === "") return undefined;
   if (!/^\d+$/.test(s) || Number(s) < min) {
-    throw new Error(`${label(form)}: ${what} must be a whole number${min > 0 ? ` of ${min} or more` : ""}`);
+    throw new HttpFormError(form, field, `${what} must be a whole number${min > 0 ? ` of ${min} or more` : ""}`);
   }
   return Number(s);
 }
@@ -159,7 +177,7 @@ function wholeNumber(text: string, what: string, form: HttpForm, min: number): n
 // defaults). Throws Error with a message on input that cannot be sent.
 export function buildHttpParams(form: HttpForm): HttpParams {
   const url = form.url.trim();
-  if (!isHttpUrl(url)) throw new Error(`${label(form)}: enter an http:// or https:// URL`);
+  if (!isHttpUrl(url)) throw new HttpFormError(form, "url", "Enter an http:// or https:// URL");
   const params: HttpParams = { url, method: form.method };
   const name = form.name.trim();
   if (name) params.name = name;
@@ -184,9 +202,9 @@ export function buildHttpParams(form: HttpForm): HttpParams {
     if (form.jsonOp !== "exists") params.json.value = parseJsonValue(form.jsonValue);
   }
 
-  const slow = wholeNumber(form.slowMs, "slow limit", form, 1);
+  const slow = wholeNumber(form.slowMs, "Slow limit", form, "slowMs", 1);
   if (slow !== undefined) params.slow_ms = slow;
-  const warn = wholeNumber(form.certWarnDays, "certificate warning days", form, 0);
+  const warn = wholeNumber(form.certWarnDays, "Certificate warning days", form, "certDays", 0);
   if (warn !== undefined) params.cert_warn_days = warn;
   params.verify_tls = form.verifyTls;
   params.follow_redirects = form.followRedirects;
@@ -196,7 +214,7 @@ export function buildHttpParams(form: HttpForm): HttpParams {
     if (form.authType === "basic") auth.username = form.authUsername;
     if (form.authType === "header") {
       const hn = form.authHeaderName.trim();
-      if (hn === "") throw new Error(`${label(form)}: auth needs a header name`);
+      if (hn === "") throw new HttpFormError(form, "authHeader", "Authentication needs a header name");
       auth.header_name = hn;
     }
     params.auth = auth;
@@ -214,7 +232,7 @@ function secretOf(form: HttpForm): string | undefined {
 export function buildHttpCheck(form: HttpForm): CheckIn {
   const params = buildHttpParams(form);
   if (form.authType !== "none" && form.secret === "" && !form.hasSecret) {
-    throw new Error(`${label(form)}: auth needs a token, password or header value`);
+    throw new HttpFormError(form, "secret", "Authentication needs a token, password or header value");
   }
   const secret = secretOf(form);
   return { type: "http", params, enabled: true, ...(secret === undefined ? {} : { secret }) };
@@ -333,8 +351,10 @@ export const httpCheckName = (params: HttpParams): string =>
 const isHttpValue = (value: unknown): value is Partial<HttpResultValue> =>
   !!value && typeof value === "object";
 
+// The backend flags slow results. Payloads from before the flag existed lack it, so the reason
+// text ("slow 2350 ms") still counts there.
 export const isSlow = (r: ResultOut | null | undefined): boolean =>
-  !!r && r.ok && /^slow \d+ ms/.test(r.reason ?? "");
+  !!r && r.ok && (r.slow === true || (r.slow === undefined && /^slow \d+ ms/.test(r.reason ?? "")));
 
 function elapsedOf(r: ResultOut): number | null {
   if (typeof r.latency_ms === "number") return r.latency_ms;

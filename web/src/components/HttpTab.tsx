@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { testDevice } from "@/api/client";
 import { OPTION, SelectField, TextAreaField, TextField, pick } from "@/components/Field";
@@ -16,6 +16,7 @@ import {
   httpTestSummary,
   newHttpForm,
   type HttpForm,
+  type HttpFormError,
 } from "@/features/http";
 import type { ResultOut } from "@/types";
 
@@ -26,13 +27,19 @@ type Props = {
   onChange: (value: HttpForm[]) => void;
   // The saved device the Test button runs against; a new device has nothing to test yet.
   deviceId?: number;
+  // The check and field that failed validation on Save: shown beside the field and focused.
+  error?: HttpFormError | null;
 };
 
 const AUTH_LABELS = { none: "None", bearer: "Bearer token", basic: "Basic (user + password)", header: "Custom header" };
 const SECRET_LABELS = { bearer: "Token", basic: "Password", header: "Header value" };
 
-export default function HttpTab({ value, onChange, deviceId }: Props) {
+export default function HttpTab({ value, onChange, deviceId, error }: Props) {
   const [outcomes, setOutcomes] = useState<Record<string, Outcome>>({});
+
+  useEffect(() => {
+    if (error) document.getElementById(`${error.formKey}-${error.field}`)?.focus();
+  }, [error]);
 
   const patch = (key: string, change: Partial<HttpForm>) =>
     onChange(value.map((f) => (f.key === key ? { ...f, ...change } : f)));
@@ -60,6 +67,7 @@ export default function HttpTab({ value, onChange, deviceId }: Props) {
       {value.length === 0 && <p className="text-sm text-muted-foreground">No HTTP checks. A failing check marks the device degraded.</p>}
       {value.map((f, i) => {
         const id = (name: string) => `${f.key}-${name}`;
+        const err = (field: string) => (error && error.formKey === f.key && error.field === field ? error.message : null);
         const outcome = outcomes[f.key];
         const canTest = deviceId !== undefined && f.id !== null;
         const setHeader = (j: number, change: Partial<HttpForm["headers"][number]>) =>
@@ -103,6 +111,7 @@ export default function HttpTab({ value, onChange, deviceId }: Props) {
               </SelectField>
               <TextField
                 id={id("url")}
+                error={err("url")}
                 label="URL"
                 fieldClassName="col-span-3"
                 className="font-mono"
@@ -203,6 +212,7 @@ export default function HttpTab({ value, onChange, deviceId }: Props) {
             <div className="grid grid-cols-12 gap-3">
               <TextField
                 id={id("jsonPath")}
+                error={err("jsonPath")}
                 label="JSON path"
                 fieldClassName="col-span-5"
                 className="font-mono"
@@ -239,6 +249,7 @@ export default function HttpTab({ value, onChange, deviceId }: Props) {
             <div className="grid grid-cols-2 gap-3">
               <TextField
                 id={id("slowMs")}
+                error={err("slowMs")}
                 label="Slow after (ms)"
                 type="number"
                 min={1}
@@ -247,6 +258,7 @@ export default function HttpTab({ value, onChange, deviceId }: Props) {
               />
               <TextField
                 id={id("certDays")}
+                error={err("certDays")}
                 label="Certificate warning (days)"
                 type="number"
                 min={0}
@@ -284,6 +296,7 @@ export default function HttpTab({ value, onChange, deviceId }: Props) {
               {f.authType === "basic" && (
                 <TextField
                   id={id("authUser")}
+                error={err("authUser")}
                   label="Username"
                   fieldClassName="col-span-3"
                   autoComplete="off"
@@ -294,6 +307,7 @@ export default function HttpTab({ value, onChange, deviceId }: Props) {
               {f.authType === "header" && (
                 <TextField
                   id={id("authHeader")}
+                error={err("authHeader")}
                   label="Header name"
                   fieldClassName="col-span-3"
                   className="font-mono"
@@ -306,6 +320,7 @@ export default function HttpTab({ value, onChange, deviceId }: Props) {
             {f.authType !== "none" && (
               <TextField
                 id={id("secret")}
+                error={err("secret")}
                 label={SECRET_LABELS[f.authType]}
                 type="password"
                 autoComplete="new-password"
