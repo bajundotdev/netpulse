@@ -176,3 +176,16 @@ def test_cert_forget_rebaselines():
     t.observe(1, "DC01", URL_CHECK, cert_res(5))
     t.forget(1)
     assert len(t.observe(1, "DC01", URL_CHECK, cert_res(5))) == 1
+
+
+def test_cert_threshold_comes_from_configs_not_from_the_results_seen():
+    """Only the liveness result (no check id) is seen during an outage; the zone holds."""
+    liveness = CheckConfig(None, CheckType.HTTP, {"url": "https://sts.example.ph/"})
+    explicit = CheckConfig(7, CheckType.HTTP, {"url": "https://sts.example.ph/a", "cert_warn_days": 30})
+    other_host = CheckConfig(8, CheckType.HTTP, {"url": "https://other.example/", "cert_warn_days": 2})
+    t = ChangeTracker()
+    [warn] = t.observe_certs(1, "STS", [(explicit, cert_res(20, explicit))], [explicit, other_host])
+    assert warn.severity is Severity.WARNING and warn.check_id == 7
+    assert t.observe_certs(1, "STS", [(liveness, cert_res(20, liveness))], [explicit, other_host]) == []
+    # without configs the liveness result alone falls back to the default threshold
+    assert len(ChangeTracker().observe_certs(1, "STS", [(liveness, cert_res(14, liveness))])) == 1

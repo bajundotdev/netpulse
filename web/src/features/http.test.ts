@@ -6,6 +6,7 @@ import {
   buildHttpParams,
   certExpiryLine,
   certTone,
+  certWarnDaysFor,
   diffHttpChecks,
   desiredHttpChecks,
   formatJsonValue,
@@ -252,5 +253,24 @@ describe("result text", () => {
   it("writes the certificate expiry line", () => {
     expect(certExpiryLine(result())).toBe("expires 2027-03-01 (112 days)");
     expect(certExpiryLine(result({ value: { cert_expires: null } }))).toBeNull();
+  });
+});
+
+describe("certWarnDaysFor", () => {
+  it("takes the smallest cert_warn_days among enabled checks on the same host:port, else 14", () => {
+    const checks: CheckOut[] = [
+      httpCheck(1, { url: "https://sts.example.org/a", cert_warn_days: 30 }),
+      httpCheck(2, { url: "https://STS.example.org:443/b", cert_warn_days: 21 }),
+      httpCheck(3, { url: "https://sts.example.org:8443/c", cert_warn_days: 2 }),
+      httpCheck(4, { url: "https://other.example.org/", cert_warn_days: 1 }),
+      { ...httpCheck(5, { url: "https://sts.example.org/d", cert_warn_days: 3 }), enabled: false },
+      { id: 6, device_id: 1, created_at: "", enabled: true, type: "tcp", params: { port: 443 } },
+    ];
+    expect(certWarnDaysFor(checks, "https://sts.example.org/")).toBe(21);
+    expect(certWarnDaysFor(checks, "https://sts.example.org:8443/x")).toBe(2);
+    expect(certWarnDaysFor(checks, "https://none.example.org/")).toBe(14);
+    expect(certWarnDaysFor([httpCheck(7, { url: "https://sts.example.org/" })], "https://sts.example.org/")).toBe(14);
+    expect(certWarnDaysFor(checks, null)).toBe(14);
+    expect(certWarnDaysFor(checks, "not a url")).toBe(14);
   });
 });

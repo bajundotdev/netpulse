@@ -1,4 +1,5 @@
 import operator
+from collections.abc import Sequence
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -38,6 +39,20 @@ def _cert_zone(days: int, warn_days: int) -> str:
     if days < 0:
         return "expired"
     return "warn" if days <= warn_days else "ok"
+
+
+def _https_endpoint(check: CheckConfig) -> tuple[str, int] | None:
+    """host:port of an https HTTP check, the key certificate state is kept under."""
+    if check.type is not CheckType.HTTP:
+        return None
+    try:
+        url = urlsplit(str(check.params.get("url") or ""))
+        port = url.port or 443
+    except ValueError:
+        return None
+    if url.scheme != "https" or not url.hostname:
+        return None
+    return url.hostname, port
 
 
 def _number(v: Any) -> float | None:
@@ -124,39 +139,58 @@ class ChangeTracker:
         return self.observe_certs(key[0], name, [(check, result)])
 
     def observe_certs(
-        self, device_id: int, name: str, items: list[tuple[CheckConfig, CheckResult]]
+        self,
+        device_id: int,
+        name: str,
+        items: list[tuple[CheckConfig, CheckResult]],
+        configs: Sequence[CheckConfig] | None = None,
     ) -> list[DomainEvent]:
         """Certificate events from HTTP results (liveness and explicit checks alike).
 
         State is per device and host:port, so a liveness check and explicit checks on the same
         endpoint share one zone and fire once. The threshold is the smallest cert_warn_days of the
-        explicit checks (check.id set) on that endpoint, else the default.
+        device's explicit HTTP checks (`configs`, the enabled ones) on that endpoint, else the
+        default. It comes from the configs, not from this cycle's results: while liveness fails
+        only its result is seen, and the zone must not move because of that. Without `configs`
+        the explicit checks among `items` are used.
         """
+        if configs is None:
+            configs = [check for check, _ in items if check.id is not None]
+        warns: dict[tuple[str, int], list[int]] = {}
+        check_ids: dict[tuple[str, int], int] = {}
+        for check in configs:
+            endpoint = _https_endpoint(check)
+            if endpoint is None or check.id is None:
+                continue
+            warn = check.params.get("cert_warn_days")
+            warns.setdefault(endpoint, []).append(
+                DEFAULT_CERT_WARN_DAYS if warn is None else int(warn)
+            )
+            check_ids.setdefault(endpoint, check.id)
         groups: dict[tuple[str, int], dict[str, Any]] = {}
         for check, result in items:
-            url = urlsplit(str(check.params.get("url") or ""))
-            if check.type is not CheckType.HTTP or url.scheme != "https" or not url.hostname:
+            endpoint = _https_endpoint(check)
+            if endpoint is None:
                 continue
             g = groups.setdefault(
-                (url.hostname, url.port or 443),
-                {"days": None, "warns": [], "check_id": None},
+                endpoint,
+                {
+                    "days": None,
+                    "warn": min(warns.get(endpoint, ()), default=DEFAULT_CERT_WARN_DAYS),
+                    "check_id": check_ids.get(endpoint),
+                },
             )
             value = result.value
             days = value.get("cert_days") if isinstance(value, dict) else None
             if isinstance(days, int) and not isinstance(days, bool) and g["days"] is None:
                 g["days"] = days
-            if check.id is not None:
-                warn = check.params.get("cert_warn_days")
-                g["warns"].append(DEFAULT_CERT_WARN_DAYS if warn is None else int(warn))
-                if g["check_id"] is None:
-                    g["check_id"] = check.id
         events: list[DomainEvent] = []
         for (host, port), g in groups.items():
             days = g["days"]
             if days is None:
                 continue  # unknown expiry keeps the previous baseline
             key = (device_id, f"cert:{host}:{port}", CheckType.HTTP)
-            zone = _cert_zone(days, min(g["warns"], default=DEFAULT_CERT_WARN_DAYS))
+            zone = _cert_zone(days, g["warn"])
             prev = self._state.get(key)
             self._state[key] = zone
             if zone == prev or (prev is None and zone == "ok"):

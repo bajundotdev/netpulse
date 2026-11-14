@@ -221,7 +221,8 @@ class Monitor:
         cert_items = [(c, r) for c, r in zip(checks, others) if c.type is CheckType.HTTP]
         if device.liveness_check().type is CheckType.HTTP:
             cert_items.append((device.liveness_check(), liveness))
-        for ev in self._tracker.observe_certs(device.id, device.name, cert_items):
+        http_configs = [c for c in checks if c.type is CheckType.HTTP]
+        for ev in self._tracker.observe_certs(device.id, device.name, cert_items, http_configs):
             await self._bus.publish("domain_event", ev)
         await self._bus.publish(
             "result",

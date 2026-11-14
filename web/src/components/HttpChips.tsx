@@ -1,7 +1,9 @@
 import StatusBadge from "@/components/StatusBadge";
 import {
+  DEFAULT_CERT_WARN_DAYS,
   certChipText,
   certDaysOf,
+  certWarnDaysFor,
   httpChipText,
   resultForHttp,
   type ChipTone,
@@ -17,8 +19,6 @@ const TONES: Record<ChipTone, Variant> = {
   neutral: "secondary",
 };
 
-const DEFAULT_WARN_DAYS = 14;
-
 function Chip({ text, tone, title }: { text: string; tone: ChipTone; title?: string }) {
   return (
     <StatusBadge tone={TONES[tone]} className="max-w-full font-normal" title={title || undefined}>
@@ -33,7 +33,10 @@ export default function HttpChips({ device }: { device: LiveDevice }) {
   const checks = (device.checks ?? []).filter((c): c is HttpCheckOut => c.type === "http");
   const liveness =
     device.kind === "web" ? (device.results ?? []).find((r) => r.check_id == null && r.type === "http") : undefined;
-  const livenessCert = liveness ? certChipText(certDaysOf(liveness), DEFAULT_WARN_DAYS) : null;
+  // Same threshold as the server's certificate events for that host:port.
+  const livenessCert = liveness
+    ? certChipText(certDaysOf(liveness), certWarnDaysFor(device.checks, device.url))
+    : null;
   if (checks.length === 0 && !livenessCert) return null;
   return (
     <div className="mt-2 flex flex-wrap gap-1">
@@ -41,7 +44,7 @@ export default function HttpChips({ device }: { device: LiveDevice }) {
       {checks.map((check) => {
         const r = resultForHttp(check, device.results);
         const chip = httpChipText(check, r);
-        const cert = r ? certChipText(certDaysOf(r), check.params.cert_warn_days ?? DEFAULT_WARN_DAYS) : null;
+        const cert = r ? certChipText(certDaysOf(r), check.params.cert_warn_days ?? DEFAULT_CERT_WARN_DAYS) : null;
         return (
           <span key={check.id} className="contents">
             <Chip {...chip} />

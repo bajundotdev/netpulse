@@ -95,4 +95,13 @@ describe("DeviceCard HTTP chips", () => {
     // the liveness certificate (10 days, under the 14 day default) is amber
     expect(screen.getByText("cert 10 d").parentElement).toHaveClass("bg-amber-500");
   });
+
+  it("colours the liveness certificate with the threshold of the checks on the same host:port", () => {
+    const checks = web.checks.map((c) =>
+      c.id === 5 && c.type === "http" ? { ...c, params: { ...c.params, cert_warn_days: 7 } } : c,
+    );
+    render(<DeviceCard device={{ ...web, checks }} now={NOW} onOpen={vi.fn()} />);
+    // 10 days left, warning at 7 days: neutral, as the server raises no event either
+    expect(screen.getByText("cert 10 d").parentElement).toHaveClass("bg-zinc-500");
+  });
 });

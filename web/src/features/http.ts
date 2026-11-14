@@ -387,6 +387,31 @@ export function httpChipText(check: Pick<HttpCheckOut, "params">, result: Result
   return { text: ms == null ? `${name} ✓` : `${name} ✓ ${Math.round(ms)} ms`, tone: "ok", title: "" };
 }
 
+export const DEFAULT_CERT_WARN_DAYS = 14;
+
+function endpointOf(url: string | null | undefined): string | null {
+  if (!url) return null;
+  try {
+    const u = new URL(url);
+    return u.protocol === "https:" ? `${u.hostname}:${u.port || "443"}` : null;
+  } catch {
+    return null;
+  }
+}
+
+// The certificate warning threshold for a URL, as the server applies it to events: the smallest
+// cert_warn_days among the enabled HTTP checks on the same host:port, else 14.
+export function certWarnDaysFor(checks: CheckOut[] | null | undefined, url: string | null | undefined): number {
+  const endpoint = endpointOf(url);
+  let warn: number | null = null;
+  for (const c of checks ?? []) {
+    if (c.type !== "http" || !c.enabled || endpoint == null || endpointOf(c.params.url) !== endpoint) continue;
+    const days = c.params.cert_warn_days ?? DEFAULT_CERT_WARN_DAYS;
+    warn = warn == null ? days : Math.min(warn, days);
+  }
+  return warn ?? DEFAULT_CERT_WARN_DAYS;
+}
+
 // Red when expired, amber at or under the warning threshold, neutral otherwise.
 export function certTone(days: number | null | undefined, warnDays: number): ChipTone {
   if (days == null) return "neutral";

@@ -548,6 +548,9 @@ class CertChecker:
         days = self.box["days"]
         value = {"status_code": 200, "elapsed_ms": 1, "cert_expires": "x", "cert_days": days,
                  "final_url": "https://sts.example.ph/"}
+        if not self.box.get("up", True):  # outage: the site answers 503, certificate still read
+            return CheckResult(CheckType.HTTP, "GET /", False, latency_ms=1.0,
+                               reason="status 503", value=value)
         ok_ = days >= 0
         return CheckResult(CheckType.HTTP, "GET /", ok_, latency_ms=1.0,
                            reason=None if ok_ else "tls: certificate has expired", value=value)
@@ -618,3 +621,40 @@ async def test_renewal_fires_info_once():
         (Severity.CRITICAL, "STS cert for sts.example.ph expired"),
         (Severity.INFO, "STS cert for sts.example.ph renewed (89 days)"),
     ]
+
+
+@pytest.mark.parametrize(
+    ("warn_days", "cert_days", "before"),
+    [
+        (30, 20, [(Severity.WARNING, "STS cert for sts.example.ph expires in 20 days")]),
+        (7, 10, []),
+    ],
+)
+async def test_outage_keeps_the_explicit_check_threshold(warn_days, cert_days, before):
+    """While liveness fails only its result is seen; the threshold still comes from the configs."""
+    box = {"days": cert_days}
+    mon, bus = cert_monitor(box)
+    check = CheckConfig(
+        5, CheckType.HTTP, {"url": "https://sts.example.ph/x", "cert_warn_days": warn_days}
+    )
+    dev = DeviceConfig(**WEB, checks=(check,))
+    await mon.run_cycle(dev)
+    assert cert_events(bus) == before
+    box["up"] = False
+    for _ in range(3):
+        [liveness] = await mon.run_cycle(dev)
+        assert not liveness.ok
+    box["up"] = True
+    for _ in range(2):
+        await mon.run_cycle(dev)
+    assert cert_events(bus) == before
+
+
+async def test_disabled_check_threshold_does_not_count():
+    box = {"days": 20}
+    mon, bus = cert_monitor(box)
+    check = CheckConfig(
+        5, CheckType.HTTP, {"url": "https://sts.example.ph/x", "cert_warn_days": 30}, enabled=False
+    )
+    await mon.run_cycle(DeviceConfig(**WEB, checks=(check,)))
+    assert cert_events(bus) == []
