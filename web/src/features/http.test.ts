@@ -166,6 +166,11 @@ describe("buildHttpCheck secret handling", () => {
   });
   it("needs a secret when auth is new", () => {
     expect(() => buildHttpCheck(form({ authType: "bearer" }))).toThrow(/token/i);
+    expect(() => buildHttpCheck(form({ authType: "bearer", secret: "  \n" }))).toThrow(/token/i);
+  });
+  it("trims a pasted secret, and a blank one keeps the stored secret", () => {
+    expect(buildHttpCheck(form({ authType: "bearer", secret: "  tok \n" })).secret).toBe("tok");
+    expect("secret" in buildHttpCheck(form({ authType: "bearer", secret: "   ", hasSecret: true }))).toBe(false);
   });
   it("clears a stored secret when auth is switched off", () => {
     expect(buildHttpCheck(form({ authType: "none", hasSecret: true })).secret).toBe("");

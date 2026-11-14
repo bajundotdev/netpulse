@@ -126,9 +126,17 @@ class InvalidSecret(ValueError):
 AUTH_INVALID_REASON = "auth: invalid secret"
 
 
-def _header_safe(value: str) -> bool:
-    """Printable ASCII only (no CR, LF, NUL or other control characters)."""
-    return bool(value) and all(0x20 <= ord(ch) <= 0x7E for ch in value)
+def header_safe(value: str, *, token: bool = False) -> bool:
+    """True when the value can be sent as (part of) an HTTP header value.
+
+    h11 accepts visible characters with spaces or tabs only between them: no leading or
+    trailing whitespace, no CR, LF, NUL or other control characters. On top of that only
+    printable ASCII is allowed (tabs are not), and a token (bearer) has no spaces at all.
+    """
+    if not value or value != value.strip(" "):
+        return False
+    low = 0x21 if token else 0x20
+    return all(low <= ord(ch) <= 0x7E for ch in value)
 
 
 def _b64(text: str) -> str:
@@ -220,11 +228,13 @@ class HttpChecker:
             kind = auth.get("type")
             username = str(auth.get("username") or "")
             header_name = str(auth.get("header_name") or "")
-            if kind in ("bearer", "header") and not _header_safe(self._secret):
+            if kind == "bearer" and not header_safe(self._secret, token=True):
                 raise InvalidSecret
-            if kind == "basic" and username and not _header_safe(username):
+            if kind == "header" and not header_safe(self._secret):
                 raise InvalidSecret
-            if kind == "header" and header_name and not _header_safe(header_name):
+            if kind == "basic" and username and not header_safe(username):
+                raise InvalidSecret
+            if kind == "header" and header_name and not header_safe(header_name, token=True):
                 raise InvalidSecret
             if kind == "bearer":
                 headers["Authorization"] = f"Bearer {self._secret}"

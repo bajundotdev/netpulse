@@ -211,7 +211,7 @@ export function buildHttpParams(form: HttpForm): HttpParams {
 
   if (form.authType !== "none") {
     const auth: NonNullable<HttpParams["auth"]> = { type: form.authType };
-    if (form.authType === "basic") auth.username = form.authUsername;
+    if (form.authType === "basic") auth.username = form.authUsername.trim();
     if (form.authType === "header") {
       const hn = form.authHeaderName.trim();
       if (hn === "") throw new HttpFormError(form, "authHeader", "Authentication needs a header name");
@@ -222,16 +222,17 @@ export function buildHttpParams(form: HttpForm): HttpParams {
   return params;
 }
 
-// The secret to send: never a blank one (omitted keeps the stored secret), and "" clears it when
-// auth was switched off.
+// The secret to send, trimmed (pasted tokens often end in a space or newline): never a blank one
+// (omitted keeps the stored secret), and "" clears it when auth was switched off.
 function secretOf(form: HttpForm): string | undefined {
   if (form.authType === "none") return form.hasSecret ? "" : undefined;
-  return form.secret === "" ? undefined : form.secret;
+  const secret = form.secret.trim();
+  return secret === "" ? undefined : secret;
 }
 
 export function buildHttpCheck(form: HttpForm): CheckIn {
   const params = buildHttpParams(form);
-  if (form.authType !== "none" && form.secret === "" && !form.hasSecret) {
+  if (form.authType !== "none" && form.secret.trim() === "" && !form.hasSecret) {
     throw new HttpFormError(form, "secret", "Authentication needs a token, password or header value");
   }
   const secret = secretOf(form);

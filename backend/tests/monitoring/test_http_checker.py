@@ -313,7 +313,10 @@ async def loopback(monkeypatch):
     await server.wait_closed()
 
 
-@pytest.mark.parametrize("secret", ["s3cr3t-token\n", "s3cr3t\x00token", "s3cr3t-tökén", "a\rb"])
+@pytest.mark.parametrize(
+    "secret",
+    ["s3cr3t-token\n", "s3cr3t\x00token", "s3cr3t-tökén", "a\rb", "s3cr3t-token ", " s3cr3t", "s3 cr3t"],
+)
 async def test_invalid_secret_never_requested_nor_leaked(loopback, secret):
     url, pool, hits = loopback
     checker = HttpChecker({"url": url, "auth": {"type": "bearer"}}, secret, pool)
@@ -326,7 +329,7 @@ async def test_invalid_secret_never_requested_nor_leaked(loopback, secret):
 async def test_protocol_error_reason_has_no_secret(loopback, monkeypatch):
     url, pool, hits = loopback
     # Bypass validation to prove the second layer on a real h11 failure.
-    monkeypatch.setattr(http_mod, "_header_safe", lambda v: True)
+    monkeypatch.setattr(http_mod, "header_safe", lambda v, **kw: True)
     secret = "s3cr3t-token\n"
     checker = HttpChecker({"url": url, "auth": {"type": "bearer"}}, secret, pool)
     r = await checker.check("h", 2000)
@@ -454,3 +457,19 @@ async def test_basic_auth_header_form_scrubbed_from_reason(make):
 
     r = await make(handler, {"auth": {"type": "basic", "username": "svc"}}, "hunter2").check("h", 1000)
     assert token not in repr(r) and "hunter2" not in repr(r)
+
+
+@pytest.mark.parametrize("value", ["s3cr3t-value ", " s3cr3t-value", "s3cr3t\tvalue", "s3cr3t\nvalue"])
+async def test_header_value_h11_would_refuse_is_invalid_secret(loopback, value):
+    url, pool, hits = loopback
+    params = {"url": url, "auth": {"type": "header", "header_name": "X-Key"}}
+    r = await HttpChecker(params, value, pool).check("h", 2000)
+    assert not r.ok and r.reason == "auth: invalid secret"
+    assert hits == [] and "s3cr3t" not in repr(r)
+
+
+async def test_header_value_with_inner_spaces_is_sent(loopback):
+    url, pool, hits = loopback
+    params = {"url": url, "auth": {"type": "header", "header_name": "X-Key"}}
+    r = await HttpChecker(params, "a b  c", pool).check("h", 2000)
+    assert r.ok and b"X-Key: a b  c\r\n" in hits[0]

@@ -16,7 +16,7 @@ from pydantic import (
     model_validator,
 )
 
-from app.monitoring.checkers.http import parse_expect_status
+from app.monitoring.checkers.http import header_safe, parse_expect_status
 
 _HOSTNAME_RE = re.compile(
     r"^(?=.{1,253}$)(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))*$"
@@ -145,8 +145,8 @@ class HttpAuth(BaseModel):
     """How the write-only secret is sent; the secret itself is never part of params."""
 
     type: Literal["bearer", "basic", "header"]
-    username: str | None = Field(default=None, max_length=200)
-    header_name: str | None = Field(default=None, max_length=100)
+    username: Annotated[str, StringConstraints(strip_whitespace=True, max_length=200)] | None = None
+    header_name: Annotated[str, StringConstraints(strip_whitespace=True, max_length=100)] | None = None
 
     @model_validator(mode="after")
     def _check(self) -> "HttpAuth":
@@ -269,11 +269,27 @@ class CheckIn(BaseModel):
     enabled: bool = True
     secret: str | None = Field(default=None, max_length=4096)
 
+    @field_validator("secret")
+    @classmethod
+    def _strip_secret(cls, v: str | None) -> str | None:
+        # Pasted tokens often carry a trailing space or newline; a blank one is no secret.
+        return v.strip() if v is not None else None
+
     @model_validator(mode="after")
     def _normalize(self) -> "CheckIn":
         self.params = _normalize_params(self.type, self.params)
         if self.secret and (self.type != "http" or not self.params.get("auth")):
             raise ValueError("a secret needs an http check with params.auth")
+        if self.secret:
+            # Fixed messages: the secret itself is never echoed. Basic passwords are base64-encoded
+            # into the header, so any characters are fine there.
+            kind = self.params["auth"]["type"]
+            if kind == "bearer" and not header_safe(self.secret, token=True):
+                raise ValueError("Token contains characters that cannot be sent in an HTTP header")
+            if kind == "header" and not header_safe(self.secret):
+                raise ValueError(
+                    "Header value contains characters that cannot be sent in an HTTP header"
+                )
         return self
 
 

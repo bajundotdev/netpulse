@@ -284,3 +284,58 @@ def test_test_endpoint_flags_a_slow_http_result(client, fake):
     fake.mode = "ok"
     fast = client.post(f"/api/devices/{d['id']}/test").json()
     assert all(r["slow"] is False for r in fast)
+
+
+# --- secret validation at save -------------------------------------------------
+
+BAD_TOKENS = ["tok\nen-SECRETVALUE", "tok\x00en-SECRETVALUE", "tok en-SECRETVALUE", "tök-SECRETVALUE"]
+
+
+@pytest.mark.parametrize("secret", BAD_TOKENS)
+def test_bearer_token_that_cannot_be_a_header_is_422_without_echo(client, secret):
+    d = web(client)
+    r = client.post(f"/api/devices/{d['id']}/checks", json={
+        "type": "http", "params": {"url": URL, "auth": {"type": "bearer"}}, "secret": secret})
+    assert r.status_code == 422
+    assert "Token contains characters that cannot be sent in an HTTP header" in r.text
+    assert "SECRETVALUE" not in r.text
+    inline = client.post("/api/devices", json={
+        "name": "inline", "kind": "web", "url": URL,
+        "checks": [{"type": "http", "params": {"url": URL, "auth": {"type": "bearer"}},
+                    "secret": secret}]})
+    assert inline.status_code == 422 and "SECRETVALUE" not in inline.text
+
+
+@pytest.mark.parametrize("secret", ["va\nlue-SECRETVALUE", "va\x01lue-SECRETVALUE", "välue-SECRETVALUE"])
+def test_header_value_that_cannot_be_sent_is_422_without_echo(client, secret):
+    d = web(client)
+    c = add_http(client, d["id"], auth={"type": "header", "header_name": "X-Key"})
+    r = client.put(f"/api/checks/{c['id']}", json={
+        "type": "http", "params": {"url": URL, "auth": {"type": "header", "header_name": "X-Key"}},
+        "secret": secret})
+    assert r.status_code == 422
+    assert "Header value contains characters that cannot be sent in an HTTP header" in r.text
+    assert "SECRETVALUE" not in r.text
+
+
+def test_secret_and_auth_names_are_trimmed_and_sent_trimmed(client, fake):
+    d = web(client)
+    add_http(client, d["id"], secret=f"  {SECRET} \n", name="bearer")
+    add_http(client, d["id"], secret=" key with inner spaces ",
+             auth={"type": "header", "header_name": " X-Key "}, name="header")
+    basic = add_http(client, d["id"], secret=" pä ss ",
+                     auth={"type": "basic", "username": " svc "}, name="basic")
+    assert basic["params"]["auth"] == {"type": "basic", "username": "svc"}
+    assert client.post(f"/api/devices/{d['id']}/test").status_code == 200
+    sent = [(req.headers.get("authorization"), req.headers.get("x-key")) for req in fake.seen]
+    assert (f"Bearer {SECRET}", None) in sent
+    assert (None, "key with inner spaces") in sent
+    b64 = base64.b64encode("svc:pä ss".encode()).decode()
+    assert (f"Basic {b64}", None) in sent
+
+
+def test_whitespace_only_secret_is_no_secret(client):
+    d = web(client)
+    r = client.post(f"/api/devices/{d['id']}/checks", json={
+        "type": "http", "params": {"url": URL, "auth": {"type": "bearer"}}, "secret": "  \t "})
+    assert r.status_code == 422  # auth needs a secret
