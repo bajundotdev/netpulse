@@ -339,3 +339,13 @@ def test_whitespace_only_secret_is_no_secret(client):
     r = client.post(f"/api/devices/{d['id']}/checks", json={
         "type": "http", "params": {"url": URL, "auth": {"type": "bearer"}}, "secret": "  \t "})
     assert r.status_code == 422  # auth needs a secret
+
+
+@pytest.mark.parametrize("username", ["jösé", "svc\tops", "svc\nops"])
+def test_basic_username_that_cannot_be_sent_is_rejected_at_save(client, username):
+    d = web(client)
+    r = client.post(f"/api/devices/{d['id']}/checks", json={
+        "type": "http", "params": {"url": URL, "auth": {"type": "basic", "username": username}},
+        "secret": "pw"})
+    assert r.status_code == 422
+    assert "auth username must be printable ASCII" in r.text

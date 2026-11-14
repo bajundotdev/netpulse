@@ -104,4 +104,16 @@ describe("DeviceCard HTTP chips", () => {
     // 10 days left, warning at 7 days: neutral, as the server raises no event either
     expect(screen.getByText("cert 10 d").parentElement).toHaveClass("bg-zinc-500");
   });
+
+  it("colours a check's certificate with the threshold shared by its host:port, not its own", () => {
+    const checks = web.checks.map((c) => {
+      if (c.type !== "http") return c;
+      if (c.id === 5) return { ...c, params: { ...c.params, cert_warn_days: 120 } };
+      if (c.id === 7) return { ...c, params: { url: "https://sts.example.org/other", cert_warn_days: 30 } };
+      return c;
+    });
+    render(<DeviceCard device={{ ...web, checks }} now={NOW} onOpen={vi.fn()} />);
+    // 112 days left: check 5 alone would warn at 120, but the server warns at the smallest (30)
+    expect(screen.getByText("cert 112 d").parentElement).toHaveClass("bg-zinc-500");
+  });
 });

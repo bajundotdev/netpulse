@@ -1,6 +1,5 @@
 import StatusBadge from "@/components/StatusBadge";
 import {
-  DEFAULT_CERT_WARN_DAYS,
   certChipText,
   certDaysOf,
   certWarnDaysFor,
@@ -33,7 +32,7 @@ export default function HttpChips({ device }: { device: LiveDevice }) {
   const checks = (device.checks ?? []).filter((c): c is HttpCheckOut => c.type === "http");
   const liveness =
     device.kind === "web" ? (device.results ?? []).find((r) => r.check_id == null && r.type === "http") : undefined;
-  // Same threshold as the server's certificate events for that host:port.
+  // Every certificate chip uses the server's event threshold for its host:port.
   const livenessCert = liveness
     ? certChipText(certDaysOf(liveness), certWarnDaysFor(device.checks, device.url))
     : null;
@@ -44,7 +43,7 @@ export default function HttpChips({ device }: { device: LiveDevice }) {
       {checks.map((check) => {
         const r = resultForHttp(check, device.results);
         const chip = httpChipText(check, r);
-        const cert = r ? certChipText(certDaysOf(r), check.params.cert_warn_days ?? DEFAULT_CERT_WARN_DAYS) : null;
+        const cert = r ? certChipText(certDaysOf(r), certWarnDaysFor(device.checks, check.params.url)) : null;
         return (
           <span key={check.id} className="contents">
             <Chip {...chip} />
