@@ -102,6 +102,8 @@ set "NP_PORT=8765"
 if defined NETPULSE_PORT set "NP_PORT=%NETPULSE_PORT%"
 echo Starting NetPulse on http://localhost:%NP_PORT%  (close this window or press Ctrl+C to stop)
 start "" http://localhost:%NP_PORT%
+rem Production: debug is always off here, even if NETPULSE_DEBUG is set for development.
+set "NETPULSE_DEBUG="
 cd backend
 ".venv\Scripts\python.exe" -m app
 if errorlevel 1 goto :fail
