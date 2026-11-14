@@ -1,6 +1,6 @@
 # NetPulse — TypeScript + Tailwind frontend, and website / API monitoring (design addendum)
 
-Date: 2026-11-12 · Status: approved 2026-11-12 · brick A implemented · Owner: Bajun
+Date: 2026-11-12 · Status: approved 2026-11-12 · implemented (bricks A and B) · Owner: Bajun
 Extends `2026-11-10-netpulse-design.md` and `2026-11-11-status-panel-and-views-design.md`.
 Mirrored in the vault as `01-Projects/NetPulse/02-design addendum - TypeScript, Tailwind and HTTP checks.md`.
 

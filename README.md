@@ -18,6 +18,17 @@ procedure: set up in a minute, no agents, no templates.
   (53, 88, 135, 389, 445, 636, 3268, 3389).
 - **SNMP v2c or v3, per device (optional):** uptime (reboot detection), interface
   operational status, custom OIDs (alert on change or on threshold).
+- **Website / API monitoring:** add a device of kind *Website / API* with a URL. Its
+  liveness is an HTTP request to that URL (30 s interval and 10 s timeout by default).
+  You can also add HTTP checks to any device. An HTTP check can assert:
+  - the expected status (default `200-399`);
+  - response time: slower than 2000 ms (default) marks the device `DEGRADED`;
+  - a keyword that must be present or absent in the body;
+  - a value in a JSON response (for example `data.status == ok`);
+  - certificate expiry: a warning event at 14 days or fewer (default), a critical event
+    when it has expired, an info event once it is renewed.
+
+  Full API checks are supported: method, headers, body, and bearer, basic or header auth.
 - **Statuses:** `UNKNOWN`, `UP`, `DEGRADED` (liveness fine, another check failing),
   `DOWN` (liveness failed `fail_threshold` times in a row), `PAUSED`.
   Defaults: poll every 5 s, `DOWN` after 2 consecutive failures, 1000 ms timeout.
@@ -44,6 +55,7 @@ flowchart LR
   SCHED["Monitor scheduler (asyncio)"] --> CHK{{"Checker strategies"}}
   CHK --> PING["Ping: Windows ping.exe"]
   CHK --> TCP["TCP connect"]
+  CHK --> HTTP["HTTP / TLS (httpx2)"]
   CHK --> SNMP["SNMP v2c/v3 adapter (pysnmp)"]
   SCHED --> SM["Device state machine"]
   SM -- "domain events" --> BUS(("Event bus"))
@@ -130,7 +142,10 @@ CPU budget check (no network used): `cd backend && .venv/bin/python scripts/perf
    stops while ping still answers, the card turns `DEGRADED` and the log names the port.
 3. For SNMP, open the SNMP tab, pick v2c or v3 and tick what to watch (uptime/reboot,
    interfaces, custom OIDs).
-4. Allow browser notifications when asked. Use *Pause* to silence a device during planned
+4. To watch a website or API, click **Add device**, choose kind *Website / API* and enter
+   the URL. Open the HTTP tab to add checks (status, keyword, JSON value, certificate
+   days, auth). **Test** on an HTTP check works after the device is saved.
+5. Allow browser notifications when asked. Use *Pause* to silence a device during planned
    work and *Test now* to run its checks immediately.
 
 ## Dashboard
@@ -189,12 +204,21 @@ Then open **Services > SNMP Service > Properties > Security**: add a community w
 only rights and add the NetPulse PC under *Accept SNMP packets from these hosts*. On
 network gear prefer **SNMP v3 with authPriv**; v2c sends the community in clear text.
 
+### HTTPS, internal CAs and proxies
+
+- Certificates are verified against the Windows certificate store. A site signed by your
+  domain CA therefore verifies on a domain-joined PC without skipping verification.
+- Switching **Verify TLS** off on a check only skips verification. NetPulse still reads
+  the certificate expiry.
+- `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY` are honoured.
+
 ## Data, backup and reset
 
 `data/` (or `NETPULSE_DATA_DIR`) holds:
 
 - `netpulse.db`: devices, checks, the event log and 30 days of status history.
-- `secret.key`: encrypts the SNMP secrets in the database.
+- `secret.key`: encrypts the SNMP secrets and the HTTP auth secrets in the database.
+  HTTP headers are stored unencrypted: put tokens in *Auth*, not in headers.
 
 Back them up **together**. If you lose `secret.key`, a new key is made on the next start
 and the stored SNMP communities and keys can no longer be read: NetPulse still starts,
@@ -202,8 +226,8 @@ logs a warning, shows those secrets as not set, and you must re-enter them. The 
 itself is the trust boundary: do not copy `data/` to shared locations. Secrets are
 write-only through the API and never logged.
 
-There are no schema migrations in v1. If a release changes the schema, this README will
-say so.
+On start, NetPulse adds any new columns to an older `netpulse.db` automatically and keeps
+your devices, checks, events and history. Back up `data/` before upgrading.
 
 **Reset:** stop NetPulse, delete the `data/` folder, start again. This removes all
 devices, history and the key.
@@ -225,8 +249,8 @@ devices, history and the key.
 ## Security
 
 Single user on localhost, so there is no authentication. The server binds to `127.0.0.1`
-by default. SNMP secrets are encrypted at rest (Fernet) and never returned by the API or
-written to logs. Prefer SNMP v3 authPriv over v2c.
+by default. SNMP and HTTP auth secrets are encrypted at rest (Fernet) and never returned by the API or
+written to logs; HTTP auth secrets are write-only in the same way. Prefer SNMP v3 authPriv over v2c.
 
 ## Known risks
 
@@ -234,6 +258,7 @@ written to logs. Prefer SNMP v3 authPriv over v2c.
 |---|---|---|
 | R1 | ICMP blocked by Windows Firewall on servers gives a false `DOWN`. | `liveness = TCP port` option; firewall rule above. |
 | R2 | The SNMP feature is not installed on Windows Server. | SNMP is per device and optional; install steps above. |
+| R14 | Internal certificates are not trusted, so HTTPS checks fail with a TLS error. | Verification uses the Windows certificate store; per-check *Verify TLS* switch. |
 
 ## First-run checklist on Windows
 
@@ -256,3 +281,10 @@ automated tests. Run them once before relying on NetPulse:
 - [ ] A switch with 50+ interfaces: the interfaces check finishes under the timeout (no
       `interfaces timeout` and no `DEGRADED` from it).
 - [ ] Two SNMPv3 devices sharing a username with different keys both answer.
+- [ ] A public HTTPS site shows `UP` with a response time and certificate days.
+- [ ] An internal HTTPS site signed by the domain CA verifies without skipping verification.
+- [ ] An API check with a bearer token passes, and the token never appears in the UI or
+      the event log.
+- [ ] A wrong keyword turns the device `DEGRADED`.
+- [ ] Upgrading with an existing `data/` keeps all devices, checks, events and history.
+- [ ] `npm test` in `web/` passes (the schema drift test needs network once, for `npx`).
