@@ -496,3 +496,41 @@ async def test_start_passes_last_known_statuses():
         assert bus.of("domain_event") == []
     finally:
         await mon.stop()
+
+
+async def test_error_wrapper_scrubs_secret_of_the_check():
+    import base64
+
+    token = base64.b64encode(b"svc:hunter2").decode()
+    factory = CheckerFactory()
+    factory.register(
+        CheckType.HTTP,
+        lambda c, d: FakeChecker([RuntimeError(f"bad hunter2 and {token}")]),
+    )
+    factory.register(CheckType.PING, lambda c, d: FakeChecker([ok()]))
+    mon = Monitor(factory, StatusStore(), RecordingBus(), resolver=fake_resolver)
+    check = CheckConfig(
+        1, CheckType.HTTP, {"url": "https://a/", "auth": {"type": "basic", "username": "svc"}},
+        secret="hunter2",
+    )
+    dev = DeviceConfig(id=1, name="W", host="h", checks=(check,))
+    results = await mon.test(dev)
+    reason = results[1].reason
+    assert "hunter2" not in reason and token not in reason and reason.startswith("error:")
+
+
+async def test_error_wrapper_hides_text_of_opaque_errors_with_secret():
+    factory = CheckerFactory()
+    factory.register(CheckType.HTTP, lambda c, d: FakeChecker([ValueError("Bearer hunter2")]))
+    factory.register(CheckType.PING, lambda c, d: FakeChecker([ok()]))
+    mon = Monitor(factory, StatusStore(), RecordingBus(), resolver=fake_resolver)
+    check = CheckConfig(1, CheckType.HTTP, {"url": "https://a/"}, secret="hunter2")
+    [_, r] = await mon.test(DeviceConfig(id=1, name="W", host="h", checks=(check,)))
+    assert r.reason == "error: ValueError"
+
+
+def test_check_config_repr_hides_secret():
+    check = CheckConfig(1, CheckType.HTTP, {"url": "https://a/"}, secret="hunter2")
+    assert "hunter2" not in repr(check) and "hunter2" not in repr(
+        DeviceConfig(id=1, name="W", host="h", checks=(check,))
+    )

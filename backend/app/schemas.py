@@ -2,28 +2,33 @@ import ipaddress
 import re
 from datetime import datetime
 from typing import Annotated, Any, Literal
+from urllib.parse import urlsplit
 
 from pydantic import (
     AfterValidator,
     BaseModel,
     ConfigDict,
     Field,
+    ValidationError,
     field_serializer,
+    field_validator,
     StringConstraints,
     model_validator,
 )
+
+from app.monitoring.checkers.http import parse_expect_status
 
 _HOSTNAME_RE = re.compile(
     r"^(?=.{1,253}$)(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))*$"
 )
 _OID_RE = re.compile(r"^\.?\d+(\.\d+)+$")
 
-DeviceKind = Literal["dc", "server", "switch", "printer", "other"]
-Liveness = Literal["ping", "tcp"]
+DeviceKind = Literal["dc", "server", "switch", "printer", "other", "web"]
+Liveness = Literal["ping", "tcp", "http"]
 SnmpVersion = Literal["v2c", "v3"]
 AuthProto = Literal["none", "MD5", "SHA", "SHA256"]
 PrivProto = Literal["none", "DES", "AES128", "AES256"]
-CheckKind = Literal["tcp", "snmp_uptime", "snmp_if", "snmp_oid"]
+CheckKind = Literal["tcp", "snmp_uptime", "snmp_if", "snmp_oid", "http"]
 Severity = Literal["info", "warning", "critical"]
 ThresholdOp = Literal[">", ">=", "<", "<=", "==", "!="]
 SNMP_CHECK_TYPES = frozenset({"snmp_uptime", "snmp_if", "snmp_oid"})
@@ -42,7 +47,32 @@ def _check_host(value: str) -> str:
     return value
 
 
+def _check_url(value: str) -> str:
+    value = value.strip()
+    if len(value) > 2048 or any(ch.isspace() or ord(ch) < 0x20 for ch in value):
+        raise ValueError("url must be a single http(s) URL of at most 2048 characters")
+    try:
+        parts = urlsplit(value)
+        parts.port  # noqa: B018 - raises ValueError for an invalid port
+    except ValueError:
+        raise ValueError("url is not valid") from None
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        raise ValueError("url must start with http:// or https:// and name a host")
+    if parts.username is not None or parts.password is not None:
+        raise ValueError("url must not contain credentials; use the auth settings")
+    return value
+
+
+def url_host(url: str) -> str | None:
+    """The URL's hostname (lower-case, no port), or None when it has none."""
+    try:
+        return urlsplit(url).hostname
+    except ValueError:
+        return None
+
+
 Host = Annotated[str, AfterValidator(_check_host)]
+Url = Annotated[str, AfterValidator(_check_url)]
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
 Port = Annotated[int, Field(ge=1, le=65535)]
 Interval = Annotated[int, Field(ge=2, le=3600)]
@@ -91,7 +121,110 @@ def _is_number(v: Any) -> bool:
     return isinstance(v, int | float) and not isinstance(v, bool)
 
 
+_HEADER_NAME_RE = re.compile(r"^[A-Za-z0-9!#$%&'*+.^_`|~-]+$")
+HttpMethod = Literal["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"]
+JsonOp = Literal["==", "!=", ">", ">=", "<", "<=", "exists"]
+
+
+def _header_text_ok(value: str) -> bool:
+    return all(0x20 <= ord(ch) <= 0x7E for ch in value)
+
+
+class HttpKeyword(BaseModel):
+    text: str = Field(min_length=1, max_length=500)
+    mode: Literal["contains", "absent"] = "contains"
+
+
+class HttpJson(BaseModel):
+    path: str = Field(min_length=1, max_length=200)
+    op: JsonOp = "=="
+    value: Any = None
+
+
+class HttpAuth(BaseModel):
+    """How the write-only secret is sent; the secret itself is never part of params."""
+
+    type: Literal["bearer", "basic", "header"]
+    username: str | None = Field(default=None, max_length=200)
+    header_name: str | None = Field(default=None, max_length=100)
+
+    @model_validator(mode="after")
+    def _check(self) -> "HttpAuth":
+        if self.type == "header":
+            if not self.header_name or not _HEADER_NAME_RE.match(self.header_name):
+                raise ValueError("auth type 'header' needs a valid header_name")
+            self.username = None
+        elif self.type == "basic":
+            self.header_name = None
+        else:
+            self.username = self.header_name = None
+        if self.username is not None and not _header_text_ok(self.username):
+            raise ValueError("auth username must be printable ASCII")
+        return self
+
+
+class HttpParams(BaseModel):
+    """Parameters of an `http` check (spec 3.2). Unknown keys are dropped."""
+
+    url: Url
+    method: HttpMethod = "GET"
+    headers: dict[str, str] = Field(default_factory=dict)
+    body: str | None = Field(default=None, max_length=100_000)
+    expect_status: str = "200-399"
+    keyword: HttpKeyword | None = None
+    json_check: HttpJson | None = Field(default=None, alias="json")
+    slow_ms: int = Field(default=2000, ge=1, le=600_000)
+    cert_warn_days: int = Field(default=14, ge=0, le=3650)
+    verify_tls: bool = True
+    follow_redirects: bool = True
+    auth: HttpAuth | None = None
+    name: Annotated[str, StringConstraints(strip_whitespace=True, max_length=100)] | None = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    @field_validator("method", mode="before")
+    @classmethod
+    def _upper(cls, v: Any) -> Any:
+        return v.strip().upper() if isinstance(v, str) else v
+
+    @field_validator("headers")
+    @classmethod
+    def _headers(cls, v: dict[str, str]) -> dict[str, str]:
+        for name, value in v.items():
+            if not _HEADER_NAME_RE.match(name) or not _header_text_ok(value):
+                raise ValueError("headers must have token names and printable ASCII values")
+        return v
+
+    @field_validator("expect_status")
+    @classmethod
+    def _status(cls, v: str) -> str:
+        ranges = parse_expect_status(v)
+        if any(lo < 100 or hi > 599 for lo, hi in ranges):
+            raise ValueError("expect_status codes must be within 100-599")
+        return ",".join(f"{lo}" if lo == hi else f"{lo}-{hi}" for lo, hi in ranges)
+
+
+def _http_params(params: dict[str, Any]) -> dict[str, Any]:
+    try:
+        model = HttpParams.model_validate(params)
+    except ValidationError as exc:
+        # Compact message: ValidationError's own text would echo the offending input.
+        detail = "; ".join(
+            f"{'.'.join(str(p) for p in e['loc'])}: {e['msg']}" if e["loc"] else e["msg"]
+            for e in exc.errors(include_input=False, include_url=False)
+        )
+        raise ValueError(f"invalid http params ({detail})") from None
+    out = model.model_dump(exclude_none=True, exclude_unset=True)
+    if model.json_check is not None:
+        out["json"] = out.pop("json_check")
+    out["method"] = model.method
+    out["expect_status"] = model.expect_status
+    return out
+
+
 def _normalize_params(kind: str, params: dict[str, Any]) -> dict[str, Any]:
+    if kind == "http":
+        return _http_params(params)
     if kind == "tcp":
         port = params.get("port")
         if not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535:
@@ -128,13 +261,19 @@ def _normalize_params(kind: str, params: dict[str, Any]) -> dict[str, Any]:
 
 
 class CheckIn(BaseModel):
+    """A check. `secret` (HTTP auth token/password/header value) is write-only:
+    None keeps the stored one, "" clears it."""
+
     type: CheckKind
     params: dict[str, Any] = Field(default_factory=dict)
     enabled: bool = True
+    secret: str | None = Field(default=None, max_length=4096)
 
     @model_validator(mode="after")
     def _normalize(self) -> "CheckIn":
         self.params = _normalize_params(self.type, self.params)
+        if self.secret and (self.type != "http" or not self.params.get("auth")):
+            raise ValueError("a secret needs an http check with params.auth")
         return self
 
 
@@ -144,6 +283,7 @@ class CheckOut(BaseModel):
     type: str
     params: dict[str, Any]
     enabled: bool
+    has_secret: bool = False
     created_at: datetime
 
 
@@ -152,20 +292,36 @@ def validate_timing(interval_s: int, timeout_ms: int) -> None:
         raise ValueError("timeout_ms must be below interval_s * 1000")
 
 
-def validate_liveness(liveness: str, port: int | None) -> None:
+def validate_liveness(liveness: str, port: int | None, url: str | None = None) -> None:
     if liveness == "tcp" and port is None:
         raise ValueError("liveness 'tcp' requires liveness_port")
+    if liveness == "http" and not url:
+        raise ValueError("liveness 'http' requires a url")
+
+
+def validate_web(kind: str, liveness: str, url: str | None) -> None:
+    if kind == "web":
+        if not url:
+            raise ValueError("a website / API device requires a url")
+        if liveness != "http":
+            raise ValueError("a website / API device requires liveness 'http'")
+
+
+# Defaults by device kind: (interval_s, timeout_ms)
+KIND_TIMING = {"web": (30, 10000)}
+DEFAULT_TIMING = (5, 1000)
 
 
 class DeviceIn(BaseModel):
     name: Name
-    host: Host
+    host: Host | None = None  # derived from the url for kind "web"
     kind: DeviceKind = "other"
+    url: Url | None = None
     enabled: bool = True
-    interval_s: Interval = 5
+    interval_s: Interval | None = None  # 5 (web: 30)
     fail_threshold: Threshold = 2
-    timeout_ms: TimeoutMs = 1000
-    liveness: Liveness = "ping"
+    timeout_ms: TimeoutMs | None = None  # 1000 (web: 10000)
+    liveness: Liveness = "ping"  # web: "http"
     liveness_port: Port | None = None
     snmp: SnmpIn | None = None
     notes: str | None = None
@@ -173,8 +329,21 @@ class DeviceIn(BaseModel):
 
     @model_validator(mode="after")
     def _cross_check(self) -> "DeviceIn":
+        default_interval, default_timeout = KIND_TIMING.get(self.kind, DEFAULT_TIMING)
+        if self.interval_s is None:
+            self.interval_s = default_interval
+        if self.timeout_ms is None:
+            self.timeout_ms = default_timeout
+        if self.kind == "web" and "liveness" not in self.model_fields_set:
+            self.liveness = "http"
+        validate_web(self.kind, self.liveness, self.url)
+        if not self.host:
+            host = url_host(self.url) if self.kind == "web" and self.url else None
+            if host is None:
+                raise ValueError("host is required")
+            self.host = _check_host(host)
         validate_timing(self.interval_s, self.timeout_ms)
-        validate_liveness(self.liveness, self.liveness_port)
+        validate_liveness(self.liveness, self.liveness_port, self.url)
         if self.snmp is None:
             if any(c.type in SNMP_CHECK_TYPES for c in self.checks):
                 raise ValueError("SNMP checks require snmp settings")
@@ -196,6 +365,7 @@ class DeviceUpdate(BaseModel):
     name: Name | None = None
     host: Host | None = None
     kind: DeviceKind | None = None
+    url: Url | None = None
     enabled: bool | None = None
     interval_s: Interval | None = None
     fail_threshold: Threshold | None = None
@@ -219,6 +389,7 @@ class DeviceOut(BaseModel):
     timeout_ms: int
     liveness: str
     liveness_port: int | None
+    url: str | None
     snmp: SnmpOut | None
     notes: str | None
     checks: list[CheckOut]

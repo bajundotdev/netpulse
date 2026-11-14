@@ -26,6 +26,7 @@ const device: LiveDevice = {
   timeout_ms: 1000,
   liveness: "tcp",
   liveness_port: 389,
+  url: null,
   snmp: null,
   notes: "rack 4",
   checks: [],

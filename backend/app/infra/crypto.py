@@ -8,7 +8,7 @@ log = logging.getLogger(__name__)
 
 
 class SecretBox:
-    """Encrypts SNMP secrets at rest with a Fernet key stored beside the database."""
+    """Encrypts SNMP and HTTP secrets at rest with a Fernet key stored beside the database."""
 
     def __init__(self, key_path: Path):
         key_path = Path(key_path)
@@ -40,5 +40,5 @@ class SecretBox:
             digest = hashlib.sha256(token.encode()).hexdigest()
             if digest not in self._warned:
                 self._warned.add(digest)
-                log.warning("stored SNMP secret could not be decrypted; re-enter it")
+                log.warning("stored secret could not be decrypted; re-enter it")
             return None

@@ -115,3 +115,100 @@ def test_snmp_checks_require_snmp_in_device_in():
 def test_update_tracks_explicit_null():
     assert "snmp" not in DeviceUpdate().model_fields_set
     assert "snmp" in DeviceUpdate(snmp=None).model_fields_set
+
+
+# --- http check params --------------------------------------------------------
+
+import pytest as _pytest  # noqa: E402
+from pydantic import ValidationError as _VE  # noqa: E402
+
+from app.schemas import CheckIn as _CheckIn  # noqa: E402
+from app.schemas import DeviceIn as _DeviceIn  # noqa: E402
+from app.schemas import DeviceUpdate as _DeviceUpdate  # noqa: E402
+
+
+def _http(**params):
+    return _CheckIn(type="http", params={"url": "https://a.example/x", **params})
+
+
+def test_http_params_defaults_and_normalisation():
+    c = _http(method="post", expect_status="200, 204,301-302", name="  Login ")
+    assert c.params["method"] == "POST" and c.params["name"] == "Login"
+    assert c.params["url"] == "https://a.example/x" and c.secret is None
+
+
+@_pytest.mark.parametrize(
+    "bad",
+    [
+        {"url": "ftp://a.example/"},
+        {"url": "a.example/x"},
+        {"url": "https://user:pw@a.example/"},
+        {"url": "https://"},
+        {"method": "TRACE"},
+        {"expect_status": "2xx"},
+        {"expect_status": "300-200"},
+        {"expect_status": "99"},
+        {"expect_status": ""},
+        {"slow_ms": -1},
+        {"slow_ms": 0},
+        {"cert_warn_days": -1},
+        {"json": {"path": "a", "op": "~=", "value": 1}},
+        {"json": {"op": "==", "value": 1}},
+        {"json": {"path": "", "op": "exists"}},
+        {"keyword": {"text": "", "mode": "contains"}},
+        {"keyword": {"text": "ok", "mode": "regex"}},
+        {"auth": {"type": "oauth"}},
+        {"auth": {"type": "header"}},
+        {"headers": {"X-A": "a\nb"}},
+        {"verify_tls": "maybe"},
+    ],
+)
+def test_http_params_rejected(bad):
+    base = {"url": "https://a.example/x"}
+    with _pytest.raises(_VE) as exc:
+        _CheckIn(type="http", params={**base, **bad})
+    # the messages themselves carry no raw input (pydantic's `input` is stripped by the API)
+    assert all("input_value" not in e["msg"] for e in exc.value.errors())
+
+
+def test_http_url_required():
+    with _pytest.raises(_VE):
+        _CheckIn(type="http", params={})
+
+
+def test_http_secret_rules():
+    ok = _CheckIn(type="http", params={"url": "https://a/", "auth": {"type": "bearer"}}, secret="t")
+    assert ok.secret == "t"
+    _CheckIn(type="http", params={"url": "https://a/"}, secret="")  # clearing is always fine
+    with _pytest.raises(_VE) as exc:
+        _CheckIn(type="http", params={"url": "https://a/"}, secret="tok3n")
+    assert all("tok3n" not in e["msg"] for e in exc.value.errors())
+    with _pytest.raises(_VE):
+        _CheckIn(type="tcp", params={"port": 80}, secret="tok3n")
+
+
+def test_web_device_rules():
+    d = _DeviceIn(name="W", kind="web", url="https://Sts.Example.PH:8443/adfs")
+    assert d.host == "sts.example.ph" and d.liveness == "http"
+    assert (d.interval_s, d.timeout_ms) == (30, 10000)
+    assert _DeviceIn(name="S", host="10.0.0.1").interval_s == 5
+    assert _DeviceIn(name="S", host="10.0.0.1").timeout_ms == 1000
+    assert _DeviceIn(name="W", kind="web", url="https://a.example/", interval_s=60,
+                     timeout_ms=3000).timeout_ms == 3000
+    with _pytest.raises(_VE):
+        _DeviceIn(name="W", kind="web")
+    with _pytest.raises(_VE):
+        _DeviceIn(name="W", kind="web", url="https://a.example/", liveness="ping")
+    with _pytest.raises(_VE):
+        _DeviceIn(name="S", host="10.0.0.1", liveness="http")  # no url
+    with _pytest.raises(_VE):
+        _DeviceIn(name="S", kind="server")  # host required unless web
+    ok = _DeviceIn(name="S", host="10.0.0.1", liveness="http", url="http://10.0.0.1/health")
+    assert ok.liveness == "http"
+
+
+def test_device_update_accepts_url_and_http_liveness():
+    u = _DeviceUpdate(url="https://a.example/", liveness="http", kind="web")
+    assert u.url == "https://a.example/"
+    with _pytest.raises(_VE):
+        _DeviceUpdate(url="gopher://a")

@@ -19,6 +19,7 @@ function device(over: Partial<LiveDevice> = {}): LiveDevice {
     timeout_ms: 1000,
     liveness: "ping",
     liveness_port: null,
+    url: null,
     snmp: null,
     notes: null,
     checks: [],

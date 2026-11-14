@@ -5,7 +5,7 @@ import { compareHosts, filterDevices, headline, problemLine, sortDevices } from 
 const dev = (o: Partial<LiveDevice> = {}): LiveDevice => ({
   id: 1, name: "x", host: "10.0.0.1", kind: "server", status: "UP", notes: null,
   enabled: true, interval_s: 5, fail_threshold: 2, timeout_ms: 1000, liveness: "ping",
-  liveness_port: null, snmp: null, created_at: "", updated_at: "", since: null,
+  liveness_port: null, url: null, snmp: null, created_at: "", updated_at: "", since: null,
   consecutive_failures: 0, checks: [], results: [], latency: [], ...o,
 });
 

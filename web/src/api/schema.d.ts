@@ -202,13 +202,17 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /** CheckIn */
+        /**
+         * CheckIn
+         * @description A check. `secret` (HTTP auth token/password/header value) is write-only:
+         *     None keeps the stored one, "" clears it.
+         */
         CheckIn: {
             /**
              * Type
              * @enum {string}
              */
-            type: "tcp" | "snmp_uptime" | "snmp_if" | "snmp_oid";
+            type: "tcp" | "snmp_uptime" | "snmp_if" | "snmp_oid" | "http";
             /** Params */
             params?: {
                 [key: string]: unknown;
@@ -218,6 +222,8 @@ export interface components {
              * @default true
              */
             enabled?: boolean;
+            /** Secret */
+            secret?: string | null;
         };
         /** CheckOut */
         CheckOut: {
@@ -233,6 +239,11 @@ export interface components {
             };
             /** Enabled */
             enabled: boolean;
+            /**
+             * Has Secret
+             * @default false
+             */
+            has_secret?: boolean;
             /**
              * Created At
              * Format: date-time
@@ -253,39 +264,35 @@ export interface components {
             /** Name */
             name: string;
             /** Host */
-            host: string;
+            host?: string | null;
             /**
              * Kind
              * @default other
              * @enum {string}
              */
-            kind?: "dc" | "server" | "switch" | "printer" | "other";
+            kind?: "dc" | "server" | "switch" | "printer" | "other" | "web";
+            /** Url */
+            url?: string | null;
             /**
              * Enabled
              * @default true
              */
             enabled?: boolean;
-            /**
-             * Interval S
-             * @default 5
-             */
-            interval_s?: number;
+            /** Interval S */
+            interval_s?: number | null;
             /**
              * Fail Threshold
              * @default 2
              */
             fail_threshold?: number;
-            /**
-             * Timeout Ms
-             * @default 1000
-             */
-            timeout_ms?: number;
+            /** Timeout Ms */
+            timeout_ms?: number | null;
             /**
              * Liveness
              * @default ping
              * @enum {string}
              */
-            liveness?: "ping" | "tcp";
+            liveness?: "ping" | "tcp" | "http";
             /** Liveness Port */
             liveness_port?: number | null;
             snmp?: components["schemas"]["SnmpIn"] | null;
@@ -316,6 +323,8 @@ export interface components {
             liveness: string;
             /** Liveness Port */
             liveness_port: number | null;
+            /** Url */
+            url: string | null;
             snmp: components["schemas"]["SnmpOut"] | null;
             /** Notes */
             notes: string | null;
@@ -359,7 +368,9 @@ export interface components {
             /** Host */
             host?: string | null;
             /** Kind */
-            kind?: ("dc" | "server" | "switch" | "printer" | "other") | null;
+            kind?: ("dc" | "server" | "switch" | "printer" | "other" | "web") | null;
+            /** Url */
+            url?: string | null;
             /** Enabled */
             enabled?: boolean | null;
             /** Interval S */
@@ -369,7 +380,7 @@ export interface components {
             /** Timeout Ms */
             timeout_ms?: number | null;
             /** Liveness */
-            liveness?: ("ping" | "tcp") | null;
+            liveness?: ("ping" | "tcp" | "http") | null;
             /** Liveness Port */
             liveness_port?: number | null;
             snmp?: components["schemas"]["SnmpIn"] | null;

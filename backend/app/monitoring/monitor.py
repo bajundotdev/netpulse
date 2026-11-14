@@ -18,6 +18,7 @@ from app.domain.models import (
 )
 from app.domain.state import DeviceState, next_state, paused_state
 from app.infra.bus import EventBus
+from app.monitoring.checkers.http import check_error_reason
 from app.monitoring.factory import CheckerFactory
 from app.monitoring.resolve import ResolveError, resolve_host
 from app.monitoring.status_store import StatusStore
@@ -155,7 +156,14 @@ class Monitor:
         except TimeoutError:
             result = CheckResult(check.type, _liveness_label(check), False, reason="timeout")
         except Exception as e:
-            result = CheckResult(check.type, _liveness_label(check), False, reason=f"error: {e}")
+            # A check with a secret never lets exception text through unfiltered (it can embed
+            # the request headers): same opaque/scrub policy as the HTTP checker.
+            reason = (
+                check_error_reason(e, check.params, check.secret)
+                if check.secret
+                else f"error: {e}"
+            )
+            result = CheckResult(check.type, _liveness_label(check), False, reason=reason)
         if result.check_id is None:
             result.check_id = check.id
         return result

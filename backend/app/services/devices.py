@@ -21,13 +21,15 @@ from app.schemas import (
     ResultOut,
     SnmpIn,
     SnmpOut,
+    url_host,
     validate_liveness,
     validate_timing,
+    validate_web,
 )
 from app.services.events import RunDb
 
 # Columns that accept an explicit null in an update; null elsewhere means "unchanged".
-_NULLABLE = {"liveness_port", "notes"}
+_NULLABLE = {"liveness_port", "notes", "url"}
 
 _SNMP_CLEARED = {
     "snmp_version": None,
@@ -93,13 +95,14 @@ def _utc(dt):
     return dt.replace(tzinfo=UTC)
 
 
-def _check_out(row: CheckRow) -> CheckOut:
+def _check_out(row: CheckRow, has_secret: bool = False) -> CheckOut:
     return CheckOut(
         id=row.id,
         device_id=row.device_id,
         type=row.type,
         params=dict(row.params or {}),
         enabled=row.enabled,
+        has_secret=has_secret,
         created_at=_utc(row.created_at),
     )
 
@@ -127,6 +130,9 @@ class DeviceService:
 
     # ---- helpers (blocking; run in a worker thread) ----
 
+    def _check_row_out(self, row: CheckRow) -> CheckOut:
+        return _check_out(row, self._checks.has_secret(row))
+
     def _out(self, row: DeviceRow) -> DeviceOut:
         snmp = None
         if row.snmp_version is not None:
@@ -149,9 +155,10 @@ class DeviceService:
             timeout_ms=row.timeout_ms,
             liveness=row.liveness,
             liveness_port=row.liveness_port,
+            url=row.url,
             snmp=snmp,
             notes=row.notes,
-            checks=[_check_out(c) for c in self._checks.list_for_device(row.id)],
+            checks=[self._check_row_out(c) for c in self._checks.list_for_device(row.id)],
             created_at=_utc(row.created_at),
             updated_at=_utc(row.updated_at),
         )
@@ -163,11 +170,17 @@ class DeviceService:
         if self._devices.get(device_id).snmp_version is None:
             raise ValidationFailed("SNMP checks require SNMP settings on the device")
 
+    def _require_secret(self, data: CheckIn, stored: bool) -> None:
+        """An auth setting without any secret (sent now or kept) would send nothing."""
+        if data.type == "http" and data.params.get("auth") and not data.secret and not stored:
+            raise ValidationFailed("auth needs a secret")
+
     def _create_sync(self, data: DeviceIn) -> tuple[DeviceOut, DeviceConfig]:
         fields = data.model_dump(exclude={"snmp", "checks"})
         fields.update(_snmp_fields(data.snmp))
         row = self._devices.create(fields)
         for check in data.checks:
+            self._require_secret(check, stored=False)
             self._checks.create(row.id, check.model_dump())
         return self._out(row), self._devices.to_config(row)
 
@@ -180,10 +193,15 @@ class DeviceService:
                 fields.get("interval_s", current.interval_s),
                 fields.get("timeout_ms", current.timeout_ms),
             )
-            validate_liveness(
-                fields.get("liveness", current.liveness),
-                fields.get("liveness_port", current.liveness_port),
-            )
+            kind = fields.get("kind", current.kind)
+            url = fields.get("url", current.url)
+            liveness = fields.get("liveness", current.liveness)
+            validate_liveness(liveness, fields.get("liveness_port", current.liveness_port), url)
+            validate_web(kind, liveness, url)
+            if kind == "web" and "host" not in fields and (
+                "url" in fields or current.kind != "web"
+            ):
+                fields["host"] = url_host(url) or current.host  # host follows the url
         except ValueError as exc:
             raise ValidationFailed(str(exc)) from exc
         if "snmp" in data.model_fields_set:
@@ -253,7 +271,7 @@ class DeviceService:
     async def list_checks(self, device_id: int) -> list[CheckOut]:
         def run() -> list[CheckOut]:
             self._devices.get(device_id)
-            return [_check_out(c) for c in self._checks.list_for_device(device_id)]
+            return [self._check_row_out(c) for c in self._checks.list_for_device(device_id)]
 
         return await self._run(run)
 
@@ -261,8 +279,9 @@ class DeviceService:
         def run() -> tuple[CheckOut, DeviceConfig]:
             if data.type in SNMP_CHECK_TYPES:
                 self._require_snmp(device_id)
+            self._require_secret(data, stored=False)
             row = self._checks.create(device_id, data.model_dump())
-            return _check_out(row), self._config(device_id)
+            return self._check_row_out(row), self._config(device_id)
 
         out, config = await self._run(run)
         await self._monitor.upsert(config)
@@ -271,11 +290,15 @@ class DeviceService:
 
     async def update_check(self, id: int, data: CheckIn) -> CheckOut:
         def run() -> tuple[CheckOut, DeviceConfig]:
-            device_id = self._checks.get(id).device_id
+            current = self._checks.get(id)
+            device_id = current.device_id
             if data.type in SNMP_CHECK_TYPES:
                 self._require_snmp(device_id)
+            # A kept secret only counts for the same kind of check.
+            kept = current.type == "http" and data.type == "http" and self._checks.has_secret(current)
+            self._require_secret(data, stored=kept and data.secret is None)
             row = self._checks.update(id, data.model_dump())
-            return _check_out(row), self._config(device_id)
+            return self._check_row_out(row), self._config(device_id)
 
         out, config = await self._run(run)
         await self._monitor.upsert(config)

@@ -5,7 +5,7 @@ import { initialState, monitorReducer } from "./monitorReducer";
 const cfg = (id: number, extra: Partial<DeviceOut> = {}): DeviceOut => ({
   id, name: `d${id}`, host: `10.0.0.${id}`, kind: "other", enabled: true,
   interval_s: 5, fail_threshold: 2, timeout_ms: 1000, liveness: "ping",
-  liveness_port: null, snmp: null, notes: null, checks: [], created_at: "", updated_at: "", ...extra,
+  liveness_port: null, url: null, snmp: null, notes: null, checks: [], created_at: "", updated_at: "", ...extra,
 });
 const st = (id: number, extra: Partial<DeviceStatusOut> = {}): DeviceStatusOut => ({
   device_id: id, name: `d${id}`, status: "UP", since: "2026-01-01T00:00:00Z",

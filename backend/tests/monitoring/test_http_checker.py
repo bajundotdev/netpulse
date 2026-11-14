@@ -363,3 +363,94 @@ async def test_other_exception_text_scrubbed(make):
 def test_scrub():
     assert scrub("x hunter2 y aHVudGVyMg==", "hunter2") == "x *** y ***"
     assert scrub("untouched", None) == "untouched"
+
+
+# --- certificates on the failure path and inside the time budget -------------
+
+async def test_cert_read_when_request_fails_with_tls_error(make):
+    import ssl
+
+    def handler(request):
+        err = httpx2.ConnectError("handshake", request=request)
+        err.__cause__ = ssl.SSLCertVerificationError("certificate has expired")
+        raise err
+
+    expires = datetime.now(UTC) - timedelta(days=2, hours=1)
+    certs = FakeCerts(expires)
+    r = await make(handler, cert_reader=certs).check("h", 1000)
+    assert not r.ok and r.reason.startswith("tls: ")
+    assert r.value["cert_expires"] == expires.isoformat() and r.value["cert_days"] == -3
+    assert r.value["status_code"] is None
+
+
+async def test_cert_read_on_bad_status(make):
+    expires = datetime.now(UTC) + timedelta(days=5, hours=1)
+    r = await make(respond(503), cert_reader=FakeCerts(expires)).check("h", 1000)
+    assert r.reason == "status 503" and r.value["cert_days"] == 5
+
+
+async def test_failure_without_cert_keeps_value_none(make):
+    def handler(request):
+        raise httpx2.ConnectError("refused", request=request)
+
+    r = await make(handler, cert_reader=FakeCerts(None)).check("h", 1000)
+    assert not r.ok and r.value is None
+
+
+async def test_slow_cert_read_never_turns_ok_into_timeout(make):
+    class Stuck:
+        async def expiry(self, host, port, timeout_ms):
+            await asyncio.sleep(30)
+
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+    r = await make(respond(), cert_reader=Stuck()).check("h", 400)
+    assert r.ok and r.reason is None and r.value["cert_days"] is None
+    assert loop.time() - started < 0.4 + 0.3  # bounded by the check budget
+
+
+async def test_cert_read_runs_alongside_the_request(make):
+    class Slowish:
+        async def expiry(self, host, port, timeout_ms):
+            await asyncio.sleep(0.2)
+            return datetime.now(UTC) + timedelta(days=30, hours=1)
+
+    async def handler(request):
+        await asyncio.sleep(0.2)
+        return httpx2.Response(200)
+
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+    r = await make(handler, cert_reader=Slowish()).check("h", 2000)
+    assert r.ok and r.value["cert_days"] == 30
+    assert loop.time() - started < 0.35  # not 0.4: request and handshake overlap
+
+
+async def test_cert_reader_crash_is_ignored(make):
+    class Boom:
+        async def expiry(self, host, port, timeout_ms):
+            raise RuntimeError("nope")
+
+    r = await make(respond(), cert_reader=Boom()).check("h", 1000)
+    assert r.ok and r.value["cert_days"] is None
+
+
+def test_scrub_removes_basic_auth_header_form():
+    import base64
+
+    token = base64.b64encode(b"svc:hunter2").decode()
+    assert scrub(f"Authorization: Basic {token}", "hunter2", "svc") == "Authorization: Basic ***"
+    token = base64.b64encode(b":hunter2").decode()
+    assert scrub(f"x {token}", "hunter2") == "x ***"
+
+
+async def test_basic_auth_header_form_scrubbed_from_reason(make):
+    import base64
+
+    token = base64.b64encode(b"svc:hunter2").decode()
+
+    def handler(request):
+        raise httpx2.ReadError(f"weird {token}")
+
+    r = await make(handler, {"auth": {"type": "basic", "username": "svc"}}, "hunter2").check("h", 1000)
+    assert token not in repr(r) and "hunter2" not in repr(r)

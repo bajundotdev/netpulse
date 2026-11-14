@@ -93,7 +93,13 @@ class DeviceRepository:
                 select(CheckRow).where(CheckRow.device_id == row.id).order_by(CheckRow.id)
             )
             checks = tuple(
-                CheckConfig(c.id, CheckType(c.type), dict(c.params or {}), c.enabled)
+                CheckConfig(
+                    c.id,
+                    CheckType(c.type),
+                    dict(c.params or {}),
+                    c.enabled,
+                    secret=self._box.decrypt(c.secret_enc),
+                )
                 for c in check_rows
             )
         return DeviceConfig(
@@ -131,9 +137,20 @@ class DeviceRepository:
             raise DuplicateNameError("device name already exists") from exc
 
 
+def _auth_wanted(type: str, params: dict) -> bool:
+    return type == "http" and bool(params.get("auth"))
+
+
 class CheckRepository:
-    def __init__(self, session_factory: sessionmaker):
+    """Checks. The write-only `secret` is encrypted into `secret_enc` and only ever read back
+    decrypted by DeviceRepository.to_config (for the checker) or as a has_secret flag."""
+
+    def __init__(self, session_factory: sessionmaker, box: SecretBox):
         self._sf = session_factory
+        self._box = box
+
+    def has_secret(self, row: CheckRow) -> bool:
+        return self._box.decrypt(row.secret_enc) is not None
 
     def list_for_device(self, device_id: int) -> list[CheckRow]:
         with self._sf() as s:
@@ -160,6 +177,10 @@ class CheckRepository:
                 params=data.get("params") or {},
                 enabled=data.get("enabled", True),
             )
+            secret = data.get("secret")
+            row.secret_enc = self._box.encrypt(secret) if secret else None
+            if not _auth_wanted(row.type, row.params):
+                row.secret_enc = None
             s.add(row)
             s.commit()
             return row
@@ -175,6 +196,11 @@ class CheckRepository:
                 row.params = data["params"] or {}
             if "enabled" in data:
                 row.enabled = data["enabled"]
+            secret = data.get("secret")
+            if secret is not None:  # None keeps the stored secret, "" clears it
+                row.secret_enc = self._box.encrypt(secret) if secret else None
+            if not _auth_wanted(row.type, row.params or {}):
+                row.secret_enc = None  # another type, or no auth any more: nothing to keep
             s.commit()
             return row
 

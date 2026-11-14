@@ -25,6 +25,7 @@ class EventKind(StrEnum):
     OID_CHANGE = "oid_change"
     OID_THRESHOLD = "oid_threshold"
     CHECK_ERROR = "check_error"
+    CERT_EXPIRY = "cert_expiry"
 
 
 class CheckType(StrEnum):
@@ -56,6 +57,8 @@ class CheckConfig:
     type: CheckType
     params: dict
     enabled: bool = True
+    # Decrypted auth secret (HTTP checks); memory only, never shown in repr().
+    secret: str | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)

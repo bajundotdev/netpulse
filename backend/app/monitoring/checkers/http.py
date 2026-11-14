@@ -131,11 +131,19 @@ def _header_safe(value: str) -> bool:
     return bool(value) and all(0x20 <= ord(ch) <= 0x7E for ch in value)
 
 
-def scrub(text: str, secret: str | None) -> str:
-    """Last line of defence: remove the secret and its basic-auth forms from a message."""
+def _b64(text: str) -> str:
+    return base64.b64encode(text.encode("utf-8", "replace")).decode()
+
+
+def scrub(text: str, secret: str | None, username: str | None = None) -> str:
+    """Last line of defence: remove the secret and its encoded forms from a message.
+
+    Covers the secret itself, base64(secret) and the basic-auth header form
+    base64("{username}:{secret}") (also with an empty username).
+    """
     if not secret:
         return text
-    forms = {secret, base64.b64encode(secret.encode("utf-8", "replace")).decode()}
+    forms = {secret, _b64(secret), _b64(f":{secret}"), _b64(f"{username or ''}:{secret}")}
     for form in sorted(forms, key=len, reverse=True):
         text = text.replace(form, "***")
     return text
@@ -144,7 +152,7 @@ def scrub(text: str, secret: str | None) -> str:
 _OPAQUE_ERRORS = (httpx2.ProtocolError, UnicodeError, ValueError, TypeError)
 
 
-def _error_reason(exc: Exception, secret: str | None = None) -> str:
+def _error_reason(exc: Exception, secret: str | None = None, username: str | None = None) -> str:
     if isinstance(exc, httpx2.TimeoutException | TimeoutError):
         return "timeout"
     if isinstance(exc, httpx2.TooManyRedirects):
@@ -160,7 +168,13 @@ def _error_reason(exc: Exception, secret: str | None = None) -> str:
     if isinstance(exc, _OPAQUE_ERRORS):
         # Their text can embed the request headers (and so the auth secret).
         return f"error: {type(exc).__name__}"
-    return scrub(f"error: {exc}", secret)
+    return scrub(f"error: {exc}", secret, username)
+
+
+def check_error_reason(exc: Exception, params: dict, secret: str | None) -> str:
+    """Failure reason for an exception that escaped an HTTP check (opaque/scrub policy)."""
+    auth = params.get("auth") or {}
+    return _error_reason(exc, secret, str(auth.get("username") or ""))
 
 
 async def _read_capped(response: httpx2.Response) -> bytes:
@@ -187,6 +201,7 @@ class HttpChecker:
         self._certs = cert_reader
         self._clock = clock
         self._url = str(params["url"])
+        self._username = str((params.get("auth") or {}).get("username") or "")
         self._method = str(params.get("method") or "GET").upper()
         self._ranges = parse_expect_status(params.get("expect_status") or "200-399")
 
@@ -237,6 +252,18 @@ class HttpChecker:
             expires = expires.replace(tzinfo=UTC)
         return expires.isoformat(), (expires - datetime.now(UTC)).days
 
+    async def _collect_cert(
+        self, task: "asyncio.Task[tuple[str | None, int | None]] | None", deadline: float
+    ) -> tuple[str | None, int | None]:
+        """The handshake started alongside the request, bounded by what is left of the budget."""
+        if task is None:
+            return None, None
+        remaining = max(0.0, deadline - asyncio.get_running_loop().time())
+        done, _ = await asyncio.wait({task}, timeout=remaining)
+        if task in done:
+            return task.result()
+        return None, None
+
     async def check(self, host: str, timeout_ms: int) -> CheckResult:
         label = self.label
         p = self._p
@@ -249,6 +276,28 @@ class HttpChecker:
             headers = self._headers()
         except InvalidSecret:
             return CheckResult(CheckType.HTTP, label, False, reason=AUTH_INVALID_REASON)
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout_ms / 1000
+        # The certificate is read whether or not the request succeeds (an expired certificate
+        # fails the request before it could be read afterwards), concurrently, and always inside
+        # this check's time budget.
+        cert_task = asyncio.ensure_future(self._cert(timeout_ms)) if self._wants_cert() else None
+        try:
+            return await self._request(
+                client, headers, body, need_body, timeout_ms, deadline, cert_task
+            )
+        finally:
+            if cert_task is not None and not cert_task.done():
+                cert_task.cancel()
+                await asyncio.gather(cert_task, return_exceptions=True)
+
+    def _wants_cert(self) -> bool:
+        return self._certs is not None and urlsplit(self._url).scheme == "https"
+
+    async def _request(
+        self, client, headers, body, need_body, timeout_ms, deadline, cert_task
+    ) -> CheckResult:
+        label, p = self.label, self._p
         started = self._clock()
         try:
             async with asyncio.timeout(timeout_ms / 1000):
@@ -265,9 +314,20 @@ class HttpChecker:
         except asyncio.CancelledError:
             raise
         except Exception as e:
-            return CheckResult(CheckType.HTTP, label, False, reason=_error_reason(e, self._secret))
+            reason = _error_reason(e, self._secret, self._username)
+            cert_expires, cert_days = await self._collect_cert(cert_task, deadline)
+            value = None
+            if cert_expires is not None:
+                value = {
+                    "status_code": None,
+                    "elapsed_ms": None,
+                    "cert_expires": cert_expires,
+                    "cert_days": cert_days,
+                    "final_url": None,
+                }
+            return CheckResult(CheckType.HTTP, label, False, reason=reason, value=value)
 
-        cert_expires, cert_days = await self._cert(timeout_ms)
+        cert_expires, cert_days = await self._collect_cert(cert_task, deadline)
         value = {
             "status_code": status,
             "elapsed_ms": elapsed_ms,

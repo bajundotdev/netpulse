@@ -19,8 +19,8 @@ def devices(session_factory, secret_box):
 
 
 @pytest.fixture
-def checks(session_factory):
-    return CheckRepository(session_factory)
+def checks(session_factory, secret_box):
+    return CheckRepository(session_factory, secret_box)
 
 
 @pytest.fixture

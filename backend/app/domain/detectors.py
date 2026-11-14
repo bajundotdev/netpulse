@@ -1,5 +1,6 @@
 import operator
 from typing import Any
+from urllib.parse import urlsplit
 
 from app.domain.models import (
     CheckConfig,
@@ -28,6 +29,15 @@ def _fmt(v: Any) -> str:
     if isinstance(v, float) and v.is_integer():
         return str(int(v))
     return str(v)
+
+
+DEFAULT_CERT_WARN_DAYS = 14
+
+
+def _cert_zone(days: int, warn_days: int) -> str:
+    if days < 0:
+        return "expired"
+    return "warn" if days <= warn_days else "ok"
 
 
 def _number(v: Any) -> float | None:
@@ -59,6 +69,9 @@ class ChangeTracker:
 
         def event(severity: Severity, kind: EventKind, message: str) -> DomainEvent:
             return DomainEvent(device_id, severity, kind, message, check_id=check.id)
+
+        if check.type is CheckType.HTTP:
+            return self._certificate(key, prev, name, check, result, event)
 
         if check.type is CheckType.SNMP_UPTIME:
             if not result.ok:
@@ -106,3 +119,23 @@ class ChangeTracker:
             return [event(Severity.CRITICAL, EventKind.OID_THRESHOLD, msg)]
         msg = f"{name} {result.label} back to normal (value {_fmt(value)})"
         return [event(Severity.INFO, EventKind.OID_THRESHOLD, msg)]
+
+    def _certificate(self, key, prev, name, check, result, event) -> list[DomainEvent]:
+        """One event per crossing of the certificate's warning threshold (https checks only)."""
+        url = urlsplit(str(check.params.get("url") or ""))
+        value = result.value
+        days = value.get("cert_days") if isinstance(value, dict) else None
+        if url.scheme != "https" or not url.hostname or not isinstance(days, int):
+            return []  # unknown expiry keeps the previous baseline
+        warn = check.params.get("cert_warn_days")
+        zone = _cert_zone(days, DEFAULT_CERT_WARN_DAYS if warn is None else int(warn))
+        self._state[key] = zone
+        if zone == prev or (prev is None and zone == "ok"):
+            return []
+        subject = f"{name} cert for {url.hostname}"
+        if zone == "expired":
+            return [event(Severity.CRITICAL, EventKind.CERT_EXPIRY, f"{subject} expired")]
+        if zone == "warn":
+            msg = f"{subject} expires in {days} days"
+            return [event(Severity.WARNING, EventKind.CERT_EXPIRY, msg)]
+        return [event(Severity.INFO, EventKind.CERT_EXPIRY, f"{subject} renewed ({days} days)")]

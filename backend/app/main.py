@@ -29,6 +29,7 @@ from app.infra.repositories import (
     NotFoundError,
     StatusHistoryRepository,
 )
+from app.monitoring.certs import CertReader
 from app.monitoring.checkers.http import HttpClientPool
 from app.monitoring.factory import CheckerFactory, default_factory
 from app.monitoring.monitor import Monitor
@@ -69,7 +70,7 @@ def _build_container(settings: Settings, factory: CheckerFactory | None) -> Cont
     box = SecretBox(settings.key_path)
     session_factory = make_session_factory(settings.db_path)
     device_repo = DeviceRepository(session_factory, box)
-    check_repo = CheckRepository(session_factory)
+    check_repo = CheckRepository(session_factory, box)
     event_repo = EventRepository(session_factory)
     history_repo = StatusHistoryRepository(session_factory)
     db = DbRunner()
@@ -85,7 +86,7 @@ def _build_container(settings: Settings, factory: CheckerFactory | None) -> Cont
 
     snmp_client = PysnmpClient()
     http_pool = HttpClientPool()
-    monitor = Monitor(factory or default_factory(snmp_client, http_pool), store, bus)
+    monitor = Monitor(factory or default_factory(snmp_client, http_pool, CertReader()), store, bus)
     return Container(
         settings=settings,
         session_factory=session_factory,
@@ -181,7 +182,7 @@ def create_app(
 
     @app.exception_handler(RequestValidationError)
     async def _invalid_request(_: Request, exc: RequestValidationError) -> JSONResponse:
-        # Drop pydantic's `input`/`ctx`: they would echo write-only SNMP secrets.
+        # Drop pydantic's `input`/`ctx`: they would echo write-only SNMP and HTTP secrets.
         errors = [{"loc": e["loc"], "msg": e["msg"], "type": e["type"]} for e in exc.errors()]
         return JSONResponse({"detail": errors}, status_code=422)
 
